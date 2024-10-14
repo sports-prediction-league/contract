@@ -5,7 +5,9 @@ pub mod Errors {
     pub const ALREADY_EXIST: felt252 = 'ALREADY_EXIST';
     pub const INVAliD_CLASSHASH: felt252 = 'INVAliD_CLASSHASH';
     pub const UNAUTHORIZED: felt252 = 'UNAUTHORIZED';
-    // you can define more errors here
+    pub const NOT_REGISTERED: felt252 = 'NOT_REGISTERED';
+    pub const INVALID_MATCH_ID: felt252 = 'INVALID_MATCH_ID';
+    pub const PREDICTED: felt252 = 'PREDICTED';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -32,6 +34,7 @@ pub trait IPrediction<TContractState> {
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
+    fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
 
 }
 
@@ -54,10 +57,12 @@ mod Prediction {
         user_id:Map::<u256,felt252>,
         users:Array<felt252>,
         version:u256,
+        user_address_pointer:Map::<ContractAddress,felt252>,
         owner:ContractAddress,
 
         user_claimed_position:u256,
         total_matches:u256,
+        match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
         predictions:Map::<(felt252,felt252),Score>
@@ -153,6 +158,7 @@ mod Prediction {
            self.user.write(id,details);
            self.user_id.write(self.total_users.read(),id);
            self.total_users.write(self.total_users.read()+1);
+           self.user_address_pointer.write(get_caller_address(),id);
         }
 
          fn get_user(self: @ContractState,id:felt252) -> ByteArray {
@@ -167,6 +173,21 @@ mod Prediction {
             starknet::syscalls::replace_class_syscall(impl_hash).unwrap_syscall();
             self.version.write(self.version.read()+1);
             self.emit(Event::Upgraded(Upgraded { implementation: impl_hash }));
+        }
+
+
+        fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256) {
+            assert(self.match_index.read(match_id) != 0,Errors::INVALID_MATCH_ID);
+            assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+            assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+            let score_construct = Score {
+                inputed:true,
+                home,
+                away
+            };
+            self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);
+
+           
         }
 
         fn get_version(self: @ContractState) -> u256 {
