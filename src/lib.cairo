@@ -8,6 +8,21 @@ pub mod Errors {
     // you can define more errors here
 }
 
+#[derive(Copy, Drop, Serde, starknet::Store)]
+ pub struct Score {
+    inputed:bool,
+    home: u256,
+    away: u256,
+   
+}
+
+#[derive(Drop, Serde, starknet::Store)]
+ pub struct Leaderboard {
+    user:ByteArray,
+    total_score:u256,
+    
+}
+
 #[starknet::interface]
 pub trait IPrediction<TContractState> {
     fn increase_balance(ref self: TContractState, amount: felt252);
@@ -16,13 +31,14 @@ pub trait IPrediction<TContractState> {
     fn get_user(self: @TContractState,id:felt252) -> ByteArray;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
+    fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
 
 }
 
 #[starknet::contract]
 mod Prediction {
     use starknet::storage::Map;
-    use super::Errors;
+    use super::{Errors,Score,Leaderboard};
     use starknet::{ContractAddress,get_caller_address,get_contract_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
@@ -38,7 +54,13 @@ mod Prediction {
         user_id:Map::<u256,felt252>,
         users:Array<felt252>,
         version:u256,
-        owner:ContractAddress
+        owner:ContractAddress,
+
+        user_claimed_position:u256,
+        total_matches:u256,
+        match_ids:Map::<u256,felt252>,
+        scores:Map::<felt252,Score>,
+        predictions:Map::<(felt252,felt252),Score>
     }
 
 
@@ -52,6 +74,71 @@ mod Prediction {
     pub struct Upgraded {
         pub implementation: ClassHash
     }
+
+    fn get_goal_range(home:u256,away:u256) -> felt252 {
+        let total_goals = home+away;
+        if total_goals<=2{
+            return '0-2';
+        }else{
+            return '3+';
+        }
+    }
+
+    fn calculate_user_scores(self: @ContractState,user_id:felt252) -> u256{
+        let mut user_total_score:u256 = 0;
+
+
+        let mut index = self.total_matches.read();
+
+        while index >self.user_claimed_position.read() {
+            let match_id = self.match_ids.read(index);
+            let match_score = self.scores.read(match_id);
+            let user_match_prediction = self.predictions.read((user_id,match_id));
+
+            if match_score.inputed {
+                if user_match_prediction.inputed {
+                    let actual_goal_range = get_goal_range(match_score.home,match_score.away);
+                    let predicted_goal_range = get_goal_range(user_match_prediction.home,user_match_prediction.away);
+
+                    let actual_result = if match_score.home ==   match_score.away {
+                        'draw'
+                    }else{
+                        if match_score.home > match_score.away {
+                            'home'
+                        }else{
+                            'away'
+                        }
+                    };
+
+
+                    let predicted_result = if user_match_prediction.home == user_match_prediction.away {
+                        'draw'
+                    }else{
+                        if user_match_prediction.home> user_match_prediction.away {
+                            'home'
+                        }else{
+                            'away'
+                        }
+                    };
+
+
+                    if match_score.home == user_match_prediction.home &&match_score.away == user_match_prediction.away && actual_goal_range == predicted_goal_range {
+                        user_total_score+=5;
+                    }else if predicted_result == actual_result && actual_goal_range == predicted_goal_range {
+                        user_total_score+=3;
+                    }else if predicted_result == actual_result {
+                        user_total_score+=2;
+                    }
+                
+                }
+            }
+            index-=1;
+
+        };
+
+        user_total_score
+    }
+
 
     #[abi(embed_v0)]
     impl PredictionImpl of super::IPrediction<ContractState> {
@@ -84,6 +171,32 @@ mod Prediction {
 
         fn get_version(self: @ContractState) -> u256 {
             self.version.read()
+        }
+
+
+         fn get_leaderboard(self: @ContractState) -> Array<Leaderboard> {
+           
+            let mut leaderboard = array![];
+
+            let mut index = 0;
+
+            while index< self.total_users.read(){
+                let user_id = self.user_id.read(index);
+              
+                let user_total_score = calculate_user_scores(self,user_id);
+
+                let leaderboard_construct = Leaderboard{
+                    user:self.user.read(user_id),
+                    total_score:user_total_score
+                };
+
+                leaderboard.append(leaderboard_construct);
+
+
+                index+=1;
+            };
+
+            leaderboard
         }
 
 
