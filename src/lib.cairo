@@ -8,6 +8,7 @@ pub mod Errors {
     pub const NOT_REGISTERED: felt252 = 'NOT_REGISTERED';
     pub const INVALID_MATCH_ID: felt252 = 'INVALID_MATCH_ID';
     pub const PREDICTED: felt252 = 'PREDICTED';
+    pub const MATCH_EXIST: felt252 = 'MATCH_EXIST';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -35,6 +36,7 @@ pub trait IPrediction<TContractState> {
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
+    fn register_matches(ref self: TContractState, match_ids:Array<felt252>);
 
 }
 
@@ -178,6 +180,7 @@ mod Prediction {
 
         fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256) {
             assert(self.match_index.read(match_id) != 0,Errors::INVALID_MATCH_ID);
+            assert(self.match_ids.read(self.match_index.read(match_id)) != '',Errors::INVALID_MATCH_ID);
             assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
             assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
             let score_construct = Score {
@@ -185,10 +188,25 @@ mod Prediction {
                 home,
                 away
             };
-            self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);
-
-           
+            self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
         }
+
+
+         fn register_matches(ref self: ContractState, match_ids:Array<felt252>) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            self.total_matches.write(self.total_matches.read()+match_ids.len().into());
+            let mut index = self.total_matches.read()+1;
+            for id in match_ids{
+                assert(self.match_ids.read(index) == '',Errors::MATCH_EXIST);
+                assert(self.match_index.read(id) == 0,Errors::MATCH_EXIST);
+                self.match_ids.write(index,id);
+                self.match_index.write(id,index);
+                index+=1;
+            };
+
+                      
+        }
+
 
         fn get_version(self: @ContractState) -> u256 {
             self.version.read()
