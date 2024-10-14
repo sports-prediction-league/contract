@@ -9,11 +9,13 @@ pub mod Errors {
     pub const INVALID_MATCH_ID: felt252 = 'INVALID_MATCH_ID';
     pub const PREDICTED: felt252 = 'PREDICTED';
     pub const MATCH_EXIST: felt252 = 'MATCH_EXIST';
+    pub const SCORED: felt252 = 'SCORED';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct Score {
     inputed:bool,
+    match_id:felt252,
     home: u256,
     away: u256,
    
@@ -37,6 +39,7 @@ pub trait IPrediction<TContractState> {
     fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, match_ids:Array<felt252>);
+    fn set_scores(ref self: TContractState, scores:Array<Score>);
 
 }
 
@@ -44,7 +47,7 @@ pub trait IPrediction<TContractState> {
 mod Prediction {
     use starknet::storage::Map;
     use super::{Errors,Score,Leaderboard};
-    use starknet::{ContractAddress,get_caller_address,get_contract_address};
+    use starknet::{ContractAddress,get_caller_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
     use core::num::traits::Zero;
@@ -163,7 +166,7 @@ mod Prediction {
            self.user_address_pointer.write(get_caller_address(),id);
         }
 
-         fn get_user(self: @ContractState,id:felt252) -> ByteArray {
+        fn get_user(self: @ContractState,id:felt252) -> ByteArray {
             self.user.read(id)
         }
 
@@ -185,6 +188,7 @@ mod Prediction {
             assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
             let score_construct = Score {
                 inputed:true,
+                match_id:match_id,
                 home,
                 away
             };
@@ -203,8 +207,21 @@ mod Prediction {
                 self.match_index.write(id,index);
                 index+=1;
             };
+        }
 
-                      
+         fn set_scores(ref self: ContractState, scores:Array<Score>) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            for score in scores {
+             
+                assert(self.match_index.read(score.match_id) != 0,Errors::INVALID_MATCH_ID);
+                assert(!self.scores.read(score.match_id).inputed, Errors::SCORED);
+                assert(!score.inputed,'INVALID_PARAMS');
+                let score_construct = Score {
+                    inputed:true,
+                   ..score
+                };
+                self.scores.write(score.match_id,score_construct);
+            }
         }
 
 
@@ -214,24 +231,16 @@ mod Prediction {
 
 
          fn get_leaderboard(self: @ContractState) -> Array<Leaderboard> {
-           
             let mut leaderboard = array![];
-
             let mut index = 0;
-
             while index< self.total_users.read(){
                 let user_id = self.user_id.read(index);
-              
                 let user_total_score = calculate_user_scores(self,user_id);
-
                 let leaderboard_construct = Leaderboard{
                     user:self.user.read(user_id),
                     total_score:user_total_score
                 };
-
                 leaderboard.append(leaderboard_construct);
-
-
                 index+=1;
             };
 
