@@ -10,6 +10,7 @@ pub mod Errors {
     pub const PREDICTED: felt252 = 'PREDICTED';
     pub const MATCH_EXIST: felt252 = 'MATCH_EXIST';
     pub const SCORED: felt252 = 'SCORED';
+    pub const PREDICTION_CLOSED: felt252 = 'PREDICTION_CLOSED';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -19,6 +20,14 @@ pub mod Errors {
     home: u256,
     away: u256,
    
+}
+
+
+#[derive(Copy, Drop, Serde, starknet::Store)]
+ pub struct Match {
+    inputed:bool,
+    id:felt252,
+    timestamp: u64,
 }
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -38,7 +47,7 @@ pub trait IPrediction<TContractState> {
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
-    fn register_matches(ref self: TContractState, match_ids:Array<felt252>);
+    fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
 
 }
@@ -46,8 +55,8 @@ pub trait IPrediction<TContractState> {
 #[starknet::contract]
 mod Prediction {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard};
-    use starknet::{ContractAddress,get_caller_address};
+    use super::{Errors,Score,Leaderboard,Match};
+    use starknet::{ContractAddress,get_caller_address,get_block_timestamp};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
     use core::num::traits::Zero;
@@ -67,6 +76,7 @@ mod Prediction {
 
         user_claimed_position:u256,
         total_matches:u256,
+        match_details:Map::<felt252,Match>,
         match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
@@ -149,7 +159,6 @@ mod Prediction {
         user_total_score
     }
 
-
     #[abi(embed_v0)]
     impl PredictionImpl of super::IPrediction<ContractState> {
         fn increase_balance(ref self: ContractState, amount: felt252) {
@@ -182,13 +191,14 @@ mod Prediction {
 
 
         fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256) {
-            assert(self.match_index.read(match_id) != 0,Errors::INVALID_MATCH_ID);
-            assert(self.match_ids.read(self.match_index.read(match_id)) != '',Errors::INVALID_MATCH_ID);
             assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+            let _match = self.match_details.read(match_id);
+            assert(_match.inputed,Errors::INVALID_MATCH_ID);
             assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+            assert(get_block_timestamp() < (_match.timestamp-600),Errors::PREDICTION_CLOSED);
             let score_construct = Score {
                 inputed:true,
-                match_id:match_id,
+                match_id,
                 home,
                 away
             };
@@ -196,15 +206,15 @@ mod Prediction {
         }
 
 
-         fn register_matches(ref self: ContractState, match_ids:Array<felt252>) {
+         fn register_matches(ref self: ContractState, matches:Array<Match>) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
-            self.total_matches.write(self.total_matches.read()+match_ids.len().into());
+            self.total_matches.write(self.total_matches.read()+matches.len().into());
             let mut index = self.total_matches.read()+1;
-            for id in match_ids{
-                assert(self.match_ids.read(index) == '',Errors::MATCH_EXIST);
-                assert(self.match_index.read(id) == 0,Errors::MATCH_EXIST);
-                self.match_ids.write(index,id);
-                self.match_index.write(id,index);
+            for _match in matches{
+                assert(!self.match_details.read(_match.id).inputed,Errors::MATCH_EXIST);
+                self.match_details.write(_match.id,_match);
+                self.match_ids.write(index,_match.id);
+                self.match_index.write(_match.id,index);
                 index+=1;
             };
         }
@@ -212,15 +222,11 @@ mod Prediction {
          fn set_scores(ref self: ContractState, scores:Array<Score>) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
             for score in scores {
-             
-                assert(self.match_index.read(score.match_id) != 0,Errors::INVALID_MATCH_ID);
+                assert(self.match_details.read(score.match_id).inputed,Errors::INVALID_MATCH_ID);
                 assert(!self.scores.read(score.match_id).inputed, Errors::SCORED);
-                assert(!score.inputed,'INVALID_PARAMS');
-                let score_construct = Score {
-                    inputed:true,
-                   ..score
-                };
-                self.scores.write(score.match_id,score_construct);
+                assert(score.match_id != '','INVALID_PARAMS');
+                assert(score.inputed,'INVALID_PARAMS');
+                self.scores.write(score.match_id,score);
             }
         }
 
