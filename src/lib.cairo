@@ -37,6 +37,7 @@ pub mod Errors {
     pub const MATCH_EXIST: felt252 = 'MATCH_EXIST';
     pub const SCORED: felt252 = 'SCORED';
     pub const PREDICTION_CLOSED: felt252 = 'PREDICTION_CLOSED';
+    pub const INVALID_ADDRESS: felt252 = 'INVALID_ADDRESS';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -75,6 +76,7 @@ pub trait IPrediction<TContractState> {
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
+    fn set_erc20(ref self: TContractState, address: ContractAddress);
 
 }
 
@@ -233,6 +235,12 @@ mod Prediction {
             starknet::syscalls::replace_class_syscall(impl_hash).unwrap_syscall();
             self.version.write(self.version.read()+1);
             self.emit(Event::Upgraded(Upgraded { implementation: impl_hash }));
+        }
+
+        fn set_erc20(ref self: ContractState, address: ContractAddress) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            assert(address.is_non_zero(), Errors::INVALID_ADDRESS);
+           self.erc20_address.write(address);
         }
 
 

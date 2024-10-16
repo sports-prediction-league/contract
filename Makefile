@@ -1,0 +1,2 @@
+t:
+	snforge test
