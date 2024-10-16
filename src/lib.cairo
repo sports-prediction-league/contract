@@ -1,4 +1,30 @@
 use starknet::class_hash::ClassHash;
+use core::starknet::ContractAddress;
+
+
+#[starknet::interface]
+pub trait IERC20<TContractState> {
+    fn get_name(self: @TContractState) -> felt252;
+    fn get_symbol(self: @TContractState) -> felt252;
+    fn get_decimals(self: @TContractState) -> u8;
+    fn get_total_supply(self: @TContractState) -> felt252;
+    fn balance_of(self: @TContractState, account: ContractAddress) -> felt252;
+    fn allowance(
+        self: @TContractState, owner: ContractAddress, spender: ContractAddress
+    ) -> felt252;
+    fn transfer(ref self: TContractState, recipient: ContractAddress, amount: felt252);
+    fn transfer_from(
+        ref self: TContractState,
+        sender: ContractAddress,
+        recipient: ContractAddress,
+        amount: felt252
+    );
+    fn approve(ref self: TContractState, spender: ContractAddress, amount: felt252);
+    fn increase_allowance(ref self: TContractState, spender: ContractAddress, added_value: felt252);
+    fn decrease_allowance(
+        ref self: TContractState, spender: ContractAddress, subtracted_value: felt252
+    );
+}
 
 pub mod Errors {
     pub const INSUFFICIENT_BALANCE: felt252 = 'INSUFFICIENT_BALANCE';
@@ -55,11 +81,26 @@ pub trait IPrediction<TContractState> {
 #[starknet::contract]
 mod Prediction {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard,Match};
-    use starknet::{ContractAddress,get_caller_address,get_block_timestamp};
+    use super::{Errors,Score,Leaderboard,Match,IERC20Dispatcher,IERC20DispatcherTrait};
+    use starknet::{ContractAddress,get_caller_address,get_block_timestamp,get_contract_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
     use core::num::traits::Zero;
+
+    const STAKING_FEE:felt252 = 1_000_000;
+
+
+    #[event]
+    #[derive(Copy, Drop, Debug, PartialEq, starknet::Event)]
+    pub enum Event {
+        Upgraded: Upgraded,
+    }
+
+    #[derive(Copy, Drop, Debug, PartialEq, starknet::Event)]
+    pub struct Upgraded {
+        pub implementation: ClassHash
+    }
+
 
 
     #[storage]
@@ -80,21 +121,26 @@ mod Prediction {
         match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
-        predictions:Map::<(felt252,felt252),Score>
+        predictions:Map::<(felt252,felt252),Score>,
+
+        erc20_address:ContractAddress
     }
 
 
-    #[event]
-    #[derive(Copy, Drop, Debug, PartialEq, starknet::Event)]
-    pub enum Event {
-        Upgraded: Upgraded,
+
+    #[constructor]
+    fn constructor(
+        ref self: ContractState,
+        owner:ContractAddress,
+        erc20_address:ContractAddress,
+    ) {
+        self.owner.write(owner);
+        self.erc20_address.write(erc20_address);
+      
     }
 
-    #[derive(Copy, Drop, Debug, PartialEq, starknet::Event)]
-    pub struct Upgraded {
-        pub implementation: ClassHash
-    }
 
+  
     fn get_goal_range(home:u256,away:u256) -> felt252 {
         let total_goals = home+away;
         if total_goals<=2{
@@ -196,6 +242,10 @@ mod Prediction {
             assert(_match.inputed,Errors::INVALID_MATCH_ID);
             assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
             assert(get_block_timestamp() < (_match.timestamp-600),Errors::PREDICTION_CLOSED);
+            let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_address.read()};
+            let allowance:u256 = erc20_dispatcher.allowance(get_caller_address(),get_contract_address()).into();
+            assert!(allowance>= STAKING_FEE.into(),"NO_ALLOWANCE");
+            erc20_dispatcher.transfer_from(get_caller_address(),get_contract_address(),STAKING_FEE);
             let score_construct = Score {
                 inputed:true,
                 match_id,
