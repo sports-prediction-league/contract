@@ -38,6 +38,8 @@ pub mod Errors {
     pub const SCORED: felt252 = 'SCORED';
     pub const PREDICTION_CLOSED: felt252 = 'PREDICTION_CLOSED';
     pub const INVALID_ADDRESS: felt252 = 'INVALID_ADDRESS';
+    pub const INVALID_TIMESTAMP: felt252 = 'INVALID_TIMESTAMP';
+    pub const INVALID_ROUND: felt252 = 'INVALID_ROUND';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -55,6 +57,7 @@ pub mod Errors {
     inputed:bool,
     id:felt252,
     timestamp: u64,
+    round: u256,
 }
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -72,7 +75,7 @@ pub trait IPrediction<TContractState> {
     fn get_user(self: @TContractState,id:felt252) -> ByteArray;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
-    fn get_leaderboard(self: @TContractState) -> Array<Leaderboard>;
+    fn get_leaderboard(self: @TContractState,start_index:u256, size:u256) -> Array<Leaderboard>;
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
@@ -125,6 +128,8 @@ mod Prediction {
         scores:Map::<felt252,Score>,
         predictions:Map::<(felt252,felt252),Score>,
 
+        total_round_predictions:Map::<u256,u256>,
+
         erc20_address:ContractAddress
     }
 
@@ -140,7 +145,6 @@ mod Prediction {
         self.erc20_address.write(erc20_address);
       
     }
-
 
   
     fn get_goal_range(home:u256,away:u256) -> felt252 {
@@ -254,6 +258,7 @@ mod Prediction {
             let allowance:u256 = erc20_dispatcher.allowance(get_caller_address(),get_contract_address()).into();
             assert!(allowance>= STAKING_FEE.into(),"NO_ALLOWANCE");
             erc20_dispatcher.transfer_from(get_caller_address(),get_contract_address(),STAKING_FEE);
+            self.total_round_predictions.write(_match.round,self.total_round_predictions.read(_match.round)+1);
             let score_construct = Score {
                 inputed:true,
                 match_id,
@@ -269,6 +274,8 @@ mod Prediction {
             self.total_matches.write(self.total_matches.read()+matches.len().into());
             let mut index = self.total_matches.read()+1;
             for _match in matches{
+                assert(_match.timestamp>0,Errors::INVALID_TIMESTAMP);
+                assert(_match.round>0,Errors::INVALID_ROUND);
                 assert(!self.match_details.read(_match.id).inputed,Errors::MATCH_EXIST);
                 self.match_details.write(_match.id,_match);
                 self.match_ids.write(index,_match.id);
@@ -294,10 +301,22 @@ mod Prediction {
         }
 
 
-         fn get_leaderboard(self: @ContractState) -> Array<Leaderboard> {
+         fn get_leaderboard(self: @ContractState,start_index:u256, size:u256) -> Array<Leaderboard> {
+
+            let total_players = self.total_users.read();
+            assert(start_index<total_players,'OUT_OF_BOUNDS');
+
+            let mut count = 0;
+            let result_size = if start_index+size >total_players{
+                total_players - start_index
+            }else{
+                size
+            };
+
+
             let mut leaderboard = array![];
-            let mut index = 0;
-            while index< self.total_users.read(){
+            let mut index = start_index;
+            while count < result_size && index < total_players {
                 let user_id = self.user_id.read(index);
                 let user_total_score = calculate_user_scores(self,user_id);
                 let leaderboard_construct = Leaderboard{
@@ -306,6 +325,7 @@ mod Prediction {
                 };
                 leaderboard.append(leaderboard_construct);
                 index+=1;
+                count+=1;
             };
 
             leaderboard
