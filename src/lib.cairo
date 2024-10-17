@@ -40,6 +40,9 @@ pub mod Errors {
     pub const INVALID_ADDRESS: felt252 = 'INVALID_ADDRESS';
     pub const INVALID_TIMESTAMP: felt252 = 'INVALID_TIMESTAMP';
     pub const INVALID_ROUND: felt252 = 'INVALID_ROUND';
+    pub const MISMATCH_MATCH_ROUND: felt252 = 'MISMATCH_MATCH_ROUND';
+    pub const INVALID_MATCH_LENGTH: felt252 = 'INVALID_MATCH_LENGTH';
+    pub const CLAIMED: felt252 = 'CLAIMED';
 }
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
@@ -60,6 +63,13 @@ pub mod Errors {
     round: u256,
 }
 
+#[derive(Copy, Drop, Serde, starknet::Store)]
+ pub struct RoundDetails {
+    start: u256,
+    end: u256,
+    inputed:bool,
+}
+
 #[derive(Drop, Serde, starknet::Store)]
  pub struct Leaderboard {
     user:ByteArray,
@@ -75,18 +85,21 @@ pub trait IPrediction<TContractState> {
     fn get_user(self: @TContractState,id:felt252) -> ByteArray;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
-    fn get_leaderboard(self: @TContractState,start_index:u256, size:u256) -> Array<Leaderboard>;
+    fn get_leaderboard(self: @TContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard>;
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
     fn set_erc20(ref self: TContractState, address: ContractAddress);
+    fn get_prediction_score(self: @TContractState,round:u256) -> Array<Score>;
+    fn get_user_score_per_round(self: @TContractState,round:u256,user_id:felt252) -> u256;
+    fn disburse_reward(ref self: TContractState, user: ContractAddress,round:u256,amount:felt252);
 
 }
 
 #[starknet::contract]
 mod Prediction {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard,Match,IERC20Dispatcher,IERC20DispatcherTrait};
+    use super::{Errors,Score,Leaderboard,Match,RoundDetails,IERC20Dispatcher,IERC20DispatcherTrait};
     use starknet::{ContractAddress,get_caller_address,get_block_timestamp,get_contract_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
@@ -120,15 +133,17 @@ mod Prediction {
         user_address_pointer:Map::<ContractAddress,felt252>,
         owner:ContractAddress,
 
-        user_claimed_position:u256,
+        user_claimed_round: Map::<(felt252,u256),bool>,
         total_matches:u256,
         match_details:Map::<felt252,Match>,
         match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
         predictions:Map::<(felt252,felt252),Score>,
+        current_round:u256,
 
         total_round_predictions:Map::<u256,u256>,
+        round_details:Map::<u256,RoundDetails>,
 
         erc20_address:ContractAddress
     }
@@ -156,13 +171,16 @@ mod Prediction {
         }
     }
 
-    fn calculate_user_scores(self: @ContractState,user_id:felt252) -> u256{
+    fn calculate_user_scores(self: @ContractState,user_id:felt252,round:u256) -> u256{
         let mut user_total_score:u256 = 0;
+        let round_details = self.round_details.read(round);
 
+        assert(round_details.inputed,Errors::INVALID_ROUND);
+        assert(round_details.end>0,Errors::INVALID_ROUND);
 
-        let mut index = self.total_matches.read();
+        let mut index = round_details.start;
 
-        while index >self.user_claimed_position.read() {
+        while index <= round_details.end {
             let match_id = self.match_ids.read(index);
             let match_score = self.scores.read(match_id);
             let user_match_prediction = self.predictions.read((user_id,match_id));
@@ -204,7 +222,7 @@ mod Prediction {
                 
                 }
             }
-            index-=1;
+            index+=1;
 
         };
 
@@ -219,6 +237,7 @@ mod Prediction {
         }
 
         fn register_user(ref self: ContractState, id: felt252,details:ByteArray) {
+           assert(id != '','INVALID_ID');
            assert(!self.registered.read(id),Errors::ALREADY_EXIST);
            self.registered.write(id,true);
            self.user.write(id,details);
@@ -233,7 +252,7 @@ mod Prediction {
 
 
 
-         fn upgrade(ref self: ContractState, impl_hash: ClassHash) {
+        fn upgrade(ref self: ContractState, impl_hash: ClassHash) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
             assert(impl_hash.is_non_zero(), Errors::INVAliD_CLASSHASH);
             starknet::syscalls::replace_class_syscall(impl_hash).unwrap_syscall();
@@ -244,7 +263,26 @@ mod Prediction {
         fn set_erc20(ref self: ContractState, address: ContractAddress) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
             assert(address.is_non_zero(), Errors::INVALID_ADDRESS);
-           self.erc20_address.write(address);
+            self.erc20_address.write(address);
+        }
+
+
+        fn disburse_reward(ref self: ContractState, user: ContractAddress,round:u256,amount:felt252) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            let user_id = self.user_address_pointer.read(user);
+            assert(!self.user_claimed_round.read((user_id,round)),Errors::CLAIMED);
+            assert(self.registered.read(user_id),Errors::NOT_REGISTERED);
+            assert(round>0, Errors::INVALID_ROUND);
+            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
+
+            let round_details = self.round_details.read(round);
+
+            assert(round_details.inputed,Errors::INVALID_ROUND);
+            assert(round_details.end>0,Errors::INVALID_ROUND);
+
+            let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_address.read()};
+            erc20_dispatcher.transfer(user,amount);
+            self.user_claimed_round.write((user_id,round),true);
         }
 
 
@@ -269,11 +307,17 @@ mod Prediction {
         }
 
 
-         fn register_matches(ref self: ContractState, matches:Array<Match>) {
+        fn register_matches(ref self: ContractState, matches:Array<Match>) {
+            assert(matches.len()>0,Errors::INVALID_MATCH_LENGTH);
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            let first_index_round = matches[0].round;
+            assert(*first_index_round>0,'INVALID_PARAMS');
             self.total_matches.write(self.total_matches.read()+matches.len().into());
+            self.current_round.write(*first_index_round);
             let mut index = self.total_matches.read()+1;
+            self.round_details.write(*first_index_round,RoundDetails{start:index,end:self.total_matches.read()+matches.len().into(),inputed:true});
             for _match in matches{
+                assert(_match.round == *first_index_round,Errors::MISMATCH_MATCH_ROUND);
                 assert(_match.timestamp>0,Errors::INVALID_TIMESTAMP);
                 assert(_match.round>0,Errors::INVALID_ROUND);
                 assert(!self.match_details.read(_match.id).inputed,Errors::MATCH_EXIST);
@@ -284,12 +328,11 @@ mod Prediction {
             };
         }
 
-         fn set_scores(ref self: ContractState, scores:Array<Score>) {
+        fn set_scores(ref self: ContractState, scores:Array<Score>) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
             for score in scores {
                 assert(self.match_details.read(score.match_id).inputed,Errors::INVALID_MATCH_ID);
                 assert(!self.scores.read(score.match_id).inputed, Errors::SCORED);
-                assert(score.match_id != '','INVALID_PARAMS');
                 assert(score.inputed,'INVALID_PARAMS');
                 self.scores.write(score.match_id,score);
             }
@@ -301,13 +344,57 @@ mod Prediction {
         }
 
 
-         fn get_leaderboard(self: @ContractState,start_index:u256, size:u256) -> Array<Leaderboard> {
+        fn get_user_score_per_round(self: @ContractState,round:u256,user_id:felt252) -> u256 {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            assert(self.registered.read(user_id),Errors::NOT_REGISTERED);
+            assert(round>0, Errors::INVALID_ROUND);
+            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
 
+            let round_details = self.round_details.read(round);
+
+            assert(round_details.inputed,Errors::INVALID_ROUND);
+            assert(round_details.end>0,Errors::INVALID_ROUND);
+
+             calculate_user_scores(self,user_id,round)
+
+            
+
+
+        }
+
+
+         fn get_prediction_score(self: @ContractState,round:u256) -> Array<Score> {
+            assert(round>0, Errors::INVALID_ROUND);
+            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
+            let mut result = array![];
+
+            let round_details = self.round_details.read(round);
+
+            assert(round_details.inputed,Errors::INVALID_ROUND);
+            assert(round_details.end>0,Errors::INVALID_ROUND);
+
+            let mut index = round_details.start;
+
+            while index <= round_details.end {
+                let match_id = self.match_ids.read(index);
+                let user_prediction = self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id));
+                result.append(user_prediction);
+                index+=1;
+            };
+
+
+            result
+        }
+
+
+         fn get_leaderboard(self: @ContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard> {
+            assert(round>0, Errors::INVALID_ROUND);
+            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
             let total_players = self.total_users.read();
             assert(start_index<total_players,'OUT_OF_BOUNDS');
 
             let mut count = 0;
-            let result_size = if start_index+size >total_players{
+            let result_size = if start_index + size > total_players {
                 total_players - start_index
             }else{
                 size
@@ -318,7 +405,7 @@ mod Prediction {
             let mut index = start_index;
             while count < result_size && index < total_players {
                 let user_id = self.user_id.read(index);
-                let user_total_score = calculate_user_scores(self,user_id);
+                let user_total_score = calculate_user_scores(self,user_id,round);
                 let leaderboard_construct = Leaderboard{
                     user:self.user.read(user_id),
                     total_score:user_total_score
@@ -330,6 +417,7 @@ mod Prediction {
 
             leaderboard
         }
+
 
 
 
