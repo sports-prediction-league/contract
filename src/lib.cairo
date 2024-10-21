@@ -64,8 +64,8 @@ pub trait IPrediction<TContractState> {
     fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
-    fn get_prediction_score(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
-    fn get_predictors(self: @TContractState,round:u256) -> Array<felt252>;
+    fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
+    fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
 
 }
@@ -109,8 +109,6 @@ mod Prediction {
         scores:Map::<felt252,Score>,
         predictions:Map::<(felt252,felt252),Score>,
         current_round:u256,
-        total_round_predictions:Map::<u256,u256>,
-        round_prediction_user: Map::<(u256,u256), felt252>,
         round_details:Map::<u256,RoundDetails>,
     }
 
@@ -228,8 +226,6 @@ mod Prediction {
             assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
             assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
             assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
-            self.round_prediction_user.write((_match.round,self.total_round_predictions.read(_match.round)),self.user_address_pointer.read(get_caller_address()));
-            self.total_round_predictions.write(_match.round,self.total_round_predictions.read(_match.round)+1);
             let score_construct = Score {
                 inputed:true,
                 match_id,
@@ -285,31 +281,8 @@ mod Prediction {
         }
 
 
-        fn get_predictors(self: @ContractState,round:u256) -> Array<felt252> {
-            assert(round>0, Errors::INVALID_ROUND);
-            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
 
-            let round_details = self.round_details.read(round);
-
-            assert(round_details.inputed,Errors::INVALID_ROUND);
-            assert(round_details.end>0,Errors::INVALID_ROUND);
-
-            let mut user_ids = array![];
-
-            let total_round_predictions = self.total_round_predictions.read(round);
-            let mut index = 0;
-
-            while index < total_round_predictions {
-                user_ids.append(self.round_prediction_user.read((round,index)));
-                index+=1;
-            };
-           
-           user_ids
-        }
-
-
-
-         fn get_prediction_score(self: @ContractState,round:u256,user:ContractAddress) -> Array<Score> {
+        fn get_user_predictions(self: @ContractState,round:u256,user:ContractAddress) -> Array<Score> {
             assert(round>0, Errors::INVALID_ROUND);
             assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
             let mut result = array![];
@@ -325,6 +298,29 @@ mod Prediction {
                 let match_id = self.match_ids.read(index);
                 let user_prediction = self.predictions.read((self.user_address_pointer.read(user),match_id));
                 result.append(user_prediction);
+                index+=1;
+            };
+
+
+            result
+        }
+
+        fn get_match_scores(self: @ContractState,round:u256) -> Array<Score> {
+            assert(round>0, Errors::INVALID_ROUND);
+            assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
+            let mut result = array![];
+
+            let round_details = self.round_details.read(round);
+
+            assert(round_details.inputed,Errors::INVALID_ROUND);
+            assert(round_details.end>0,Errors::INVALID_ROUND);
+
+            let mut index = round_details.start;
+
+            while index <= round_details.end {
+                let match_id = self.match_ids.read(index);
+                let score = self.scores.read(match_id);
+                result.append(score);
                 index+=1;
             };
 
@@ -369,7 +365,7 @@ mod Prediction {
 
 
 
-         fn get_leaderboard(self: @ContractState,start_index:u256, size:u256) -> Array<Leaderboard> {
+        fn get_leaderboard(self: @ContractState,start_index:u256, size:u256) -> Array<Leaderboard> {
           
             let total_players = self.total_users.read();
 
