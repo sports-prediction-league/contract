@@ -38,6 +38,8 @@ pub mod Errors {
     round: u256,
 }
 
+
+
 #[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct RoundDetails {
     start: u256,
@@ -47,7 +49,7 @@ pub mod Errors {
 
 #[derive(Drop, Serde, starknet::Store)]
  pub struct Leaderboard {
-    user:ByteArray,
+    user:felt252,
     total_score:u256,
     
 }
@@ -55,8 +57,9 @@ pub mod Errors {
 
 #[starknet::interface]
 pub trait IPrediction<TContractState> {
-    fn register_user(ref self: TContractState, id: felt252,details:ByteArray);
-    fn get_user(self: @TContractState,id:felt252) -> ByteArray;
+    fn register_user(ref self: TContractState, id: felt252,username:felt252);
+    fn get_user_by_id(self: @TContractState,id:felt252) -> felt252;
+    fn get_user_by_address(self: @TContractState,address:ContractAddress) -> felt252;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard_by_round(self: @TContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard>;
@@ -67,6 +70,7 @@ pub trait IPrediction<TContractState> {
     fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
+    fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
 
 }
 
@@ -95,7 +99,7 @@ mod Prediction {
     #[storage]
     struct Storage {
         total_users:u256,
-        user: Map::<felt252, ByteArray>,
+        user: Map::<felt252, felt252>,
         registered: Map::<felt252, bool>,
         user_id:Map::<u256,felt252>,
         users:Array<felt252>,
@@ -194,18 +198,31 @@ mod Prediction {
     impl PredictionImpl of super::IPrediction<ContractState> {
 
 
-        fn register_user(ref self: ContractState, id: felt252,details:ByteArray) {
+        fn register_user(ref self: ContractState, id: felt252,username:felt252) {
            assert(id != '','INVALID_ID');
-           assert(!self.registered.read(id),Errors::ALREADY_EXIST);
+           assert(username != '' &&username !=0,'INVALID_ID');
+           assert(!self.registered.read(id)&& !self.registered.read(username),Errors::ALREADY_EXIST);
            self.registered.write(id,true);
-           self.user.write(id,details);
+           self.registered.write(username,true);
+           self.user.write(id,username);
            self.user_id.write(self.total_users.read(),id);
            self.total_users.write(self.total_users.read()+1);
            self.user_address_pointer.write(get_caller_address(),id);
         }
 
-        fn get_user(self: @ContractState,id:felt252) -> ByteArray {
+
+
+        fn get_user_by_id(self: @ContractState,id:felt252) -> felt252 {
             self.user.read(id)
+        }
+
+
+        fn is_address_registered(self: @ContractState,address:ContractAddress) -> bool {
+            self.registered.read(self.user_address_pointer.read(address))
+        }
+
+        fn get_user_by_address(self: @ContractState,address:ContractAddress) -> felt252 {
+            self.user.read(self.user_address_pointer.read(address))
         }
 
 
