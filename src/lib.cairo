@@ -71,6 +71,7 @@ pub trait IPrediction<TContractState> {
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
+    fn get_user_total_scores(self: @TContractState,user_id:felt252) -> u256;
 
 }
 
@@ -418,6 +419,25 @@ mod Prediction {
 
             }
             leaderboard
+        }
+
+
+
+        fn get_user_total_scores(self: @ContractState,user_id:felt252) -> u256 {
+          
+            if(!self.registered.read(user_id)){
+                return 0;
+            }
+            let mut user_total_score = 0;
+            let mut round_index = self.current_round.read();
+            while round_index > 0 {
+                let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                user_total_score+=user_round_total_score;
+                round_index-=1;
+            };
+                  
+             
+            user_total_score
         }
 
 
