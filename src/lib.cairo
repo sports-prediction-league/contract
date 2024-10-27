@@ -47,7 +47,7 @@ pub mod Errors {
     inputed:bool,
 }
 
-#[derive(Drop, Serde, starknet::Store)]
+#[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct Leaderboard {
     user:felt252,
     total_score:u256,
@@ -72,6 +72,7 @@ pub trait IPrediction<TContractState> {
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
     fn get_user_total_scores(self: @TContractState,user_id:felt252) -> u256;
+    fn get_first_position(self: @TContractState) -> Option<Leaderboard>;
 
 }
 
@@ -440,10 +441,47 @@ mod Prediction {
             user_total_score
         }
 
+        fn get_first_position(self: @ContractState) -> Option<Leaderboard> {
+          
+            let total_players = self.total_users.read();
+
+            let mut leaderboard:Option<Leaderboard> = Option::None;
 
 
 
 
-       
+            let mut user_index = 0;
+            while user_index < total_players {
+                let user_id = self.user_id.read(user_index);
+                let mut user_total_score = 0;
+                let mut round_index = self.current_round.read();
+                while round_index > 0 {
+                    let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                    user_total_score+=user_round_total_score;
+                    round_index-=1;
+                };
+                if let Option::Some(_current) = leaderboard {
+                    if user_total_score> _current.total_score{
+                        let leaderboard_construct = Leaderboard{
+                            user:self.user.read(user_id),
+                            total_score:user_total_score
+                        };
+                        leaderboard = Option::Some(leaderboard_construct);
+                    }
+
+                }else{
+
+                    let leaderboard_construct = Leaderboard{
+                        user:self.user.read(user_id),
+                        total_score:user_total_score
+                    };
+
+                    leaderboard = Option::Some(leaderboard_construct);
+                }
+                user_index+=1;
+            };
+
+            leaderboard
+        }     
     }
 }
