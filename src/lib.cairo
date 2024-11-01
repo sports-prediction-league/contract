@@ -73,6 +73,7 @@ pub trait IPrediction<TContractState> {
     fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
     fn get_user_total_scores(self: @TContractState,user_id:felt252) -> u256;
     fn get_first_position(self: @TContractState) -> Option<Leaderboard>;
+    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Score>);
 
 }
 
@@ -252,6 +253,27 @@ mod Prediction {
                 away
             };
             self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+        }
+
+        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Score>) {
+            assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+            for prediction in predictions {
+                let match_id = prediction.match_id;
+                let home = prediction.home;
+                let away = prediction.away;
+                let _match = self.match_details.read(match_id);
+                assert(_match.inputed,Errors::INVALID_MATCH_ID);
+                assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
+                assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+                assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
+                let score_construct = Score {
+                    inputed:true,
+                    match_id,
+                    home,
+                    away
+                };
+                self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+            }
         }
 
 
