@@ -38,6 +38,8 @@ pub mod Errors {
     round: u256,
 }
 
+
+
 #[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct RoundDetails {
     start: u256,
@@ -45,9 +47,9 @@ pub mod Errors {
     inputed:bool,
 }
 
-#[derive(Drop, Serde, starknet::Store)]
+#[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct Leaderboard {
-    user:ByteArray,
+    user:felt252,
     total_score:u256,
     
 }
@@ -55,8 +57,9 @@ pub mod Errors {
 
 #[starknet::interface]
 pub trait IPrediction<TContractState> {
-    fn register_user(ref self: TContractState, id: felt252,details:ByteArray);
-    fn get_user(self: @TContractState,id:felt252) -> ByteArray;
+    fn register_user(ref self: TContractState, id: felt252,username:felt252);
+    fn get_user_by_id(self: @TContractState,id:felt252) -> felt252;
+    fn get_user_by_address(self: @TContractState,address:ContractAddress) -> felt252;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard_by_round(self: @TContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard>;
@@ -67,6 +70,10 @@ pub trait IPrediction<TContractState> {
     fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
+    fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
+    fn get_user_total_scores(self: @TContractState,user_id:felt252) -> u256;
+    fn get_first_position(self: @TContractState) -> Option<Leaderboard>;
+    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Score>);
 
 }
 
@@ -95,7 +102,7 @@ mod Prediction {
     #[storage]
     struct Storage {
         total_users:u256,
-        user: Map::<felt252, ByteArray>,
+        user: Map::<felt252, felt252>,
         registered: Map::<felt252, bool>,
         user_id:Map::<u256,felt252>,
         users:Array<felt252>,
@@ -194,18 +201,31 @@ mod Prediction {
     impl PredictionImpl of super::IPrediction<ContractState> {
 
 
-        fn register_user(ref self: ContractState, id: felt252,details:ByteArray) {
+        fn register_user(ref self: ContractState, id: felt252,username:felt252) {
            assert(id != '','INVALID_ID');
-           assert(!self.registered.read(id),Errors::ALREADY_EXIST);
+           assert(username != '' &&username !=0,'INVALID_ID');
+           assert(!self.registered.read(id)&& !self.registered.read(username),Errors::ALREADY_EXIST);
            self.registered.write(id,true);
-           self.user.write(id,details);
+           self.registered.write(username,true);
+           self.user.write(id,username);
            self.user_id.write(self.total_users.read(),id);
            self.total_users.write(self.total_users.read()+1);
            self.user_address_pointer.write(get_caller_address(),id);
         }
 
-        fn get_user(self: @ContractState,id:felt252) -> ByteArray {
+
+
+        fn get_user_by_id(self: @ContractState,id:felt252) -> felt252 {
             self.user.read(id)
+        }
+
+
+        fn is_address_registered(self: @ContractState,address:ContractAddress) -> bool {
+            self.registered.read(self.user_address_pointer.read(address))
+        }
+
+        fn get_user_by_address(self: @ContractState,address:ContractAddress) -> felt252 {
+            self.user.read(self.user_address_pointer.read(address))
         }
 
 
@@ -233,6 +253,27 @@ mod Prediction {
                 away
             };
             self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+        }
+
+        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Score>) {
+            assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+            for prediction in predictions {
+                let match_id = prediction.match_id;
+                let home = prediction.home;
+                let away = prediction.away;
+                let _match = self.match_details.read(match_id);
+                assert(_match.inputed,Errors::INVALID_MATCH_ID);
+                assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
+                assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+                assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
+                let score_construct = Score {
+                    inputed:true,
+                    match_id,
+                    home,
+                    away
+                };
+                self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+            }
         }
 
 
@@ -405,8 +446,64 @@ mod Prediction {
 
 
 
+        fn get_user_total_scores(self: @ContractState,user_id:felt252) -> u256 {
+          
+            if(!self.registered.read(user_id)){
+                return 0;
+            }
+            let mut user_total_score = 0;
+            let mut round_index = self.current_round.read();
+            while round_index > 0 {
+                let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                user_total_score+=user_round_total_score;
+                round_index-=1;
+            };
+                  
+             
+            user_total_score
+        }
+
+        fn get_first_position(self: @ContractState) -> Option<Leaderboard> {
+          
+            let total_players = self.total_users.read();
+
+            let mut leaderboard:Option<Leaderboard> = Option::None;
 
 
-       
+
+
+            let mut user_index = 0;
+            while user_index < total_players {
+                let user_id = self.user_id.read(user_index);
+                let mut user_total_score = 0;
+                let mut round_index = self.current_round.read();
+                while round_index > 0 {
+                    let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                    user_total_score+=user_round_total_score;
+                    round_index-=1;
+                };
+                if let Option::Some(_current) = leaderboard {
+                    if user_total_score> _current.total_score{
+                        let leaderboard_construct = Leaderboard{
+                            user:self.user.read(user_id),
+                            total_score:user_total_score
+                        };
+                        leaderboard = Option::Some(leaderboard_construct);
+                    }
+
+                }else{
+
+                    let leaderboard_construct = Leaderboard{
+                        user:self.user.read(user_id),
+                        total_score:user_total_score
+                    };
+
+                    leaderboard = Option::Some(leaderboard_construct);
+                }
+                user_index+=1;
+            };
+
+            leaderboard
+        }     
     }
 }
