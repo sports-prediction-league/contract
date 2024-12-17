@@ -49,38 +49,45 @@ pub mod Errors {
 
 #[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct Leaderboard {
-    user:felt252,
-    total_score:u256,
-    
+    user:User,
+    total_score:u256,   
+}
+
+
+#[derive(Copy, Drop, Serde, starknet::Store)]
+ pub struct User {
+    id:felt252,
+    username:felt252,
+    address:ContractAddress,
+    total_score:u256,   
 }
 
 
 #[starknet::interface]
 pub trait IPrediction<TContractState> {
-    fn register_user(ref self: TContractState, id: felt252,username:felt252);
-    fn get_user_by_id(self: @TContractState,id:felt252) -> felt252;
-    fn get_user_by_address(self: @TContractState,address:ContractAddress) -> felt252;
+    fn register_user(ref self: TContractState, user:User);
+    fn get_user_by_id(self: @TContractState,id:felt252) -> User;
+    fn get_user_by_address(self: @TContractState,address:ContractAddress) -> User;
     fn upgrade(ref self: TContractState, impl_hash: ClassHash);
     fn get_version(self: @TContractState) -> u256;
     fn get_leaderboard_by_round(self: @TContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard>;
     fn get_leaderboard(self: @TContractState,start_index:u256, size:u256) -> Array<Leaderboard>;
-    fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256);
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
     fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
-    fn get_user_total_scores(self: @TContractState,user_id:felt252) -> u256;
+    fn get_user_total_scores(self: @TContractState,address:ContractAddress) -> u256;
     fn get_first_position(self: @TContractState) -> Option<Leaderboard>;
-    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Score>);
-
+    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Score>,initiator:ContractAddress);
+    fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256, initiator:ContractAddress);
 }
 
 #[starknet::contract]
 mod Prediction {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard,Match,RoundDetails};
+    use super::{Errors,Score,Leaderboard,Match,RoundDetails,User};
     use starknet::{ContractAddress,get_caller_address,get_block_timestamp};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
@@ -102,19 +109,18 @@ mod Prediction {
     #[storage]
     struct Storage {
         total_users:u256,
-        user: Map::<felt252, felt252>,
-        registered: Map::<felt252, bool>,
-        user_id:Map::<u256,felt252>,
-        users:Array<felt252>,
+        user: Map::<ContractAddress, User>,
+        registered: Map::<ContractAddress, bool>,
+        user_by_index:Map::<u256,User>,
+        user_by_id:Map::<felt252,User>,
         version:u256,
-        user_address_pointer:Map::<ContractAddress,felt252>,
         owner:ContractAddress,
         total_matches:u256,
         match_details:Map::<felt252,Match>,
         match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
-        predictions:Map::<(felt252,felt252),Score>,
+        predictions:Map::<(ContractAddress,felt252),Score>,
         current_round:u256,
         round_details:Map::<u256,RoundDetails>,
     }
@@ -139,7 +145,7 @@ mod Prediction {
         }
     }
 
-    fn calculate_user_scores(self: @ContractState,user_id:felt252,round:u256) -> u256{
+    fn calculate_user_scores(self: @ContractState,user_address:ContractAddress,round:u256) -> u256{
         let mut user_total_score:u256 = 0;
         let round_details = self.round_details.read(round);
 
@@ -151,7 +157,7 @@ mod Prediction {
         while index <= round_details.end {
             let match_id = self.match_ids.read(index);
             let match_score = self.scores.read(match_id);
-            let user_match_prediction = self.predictions.read((user_id,match_id));
+            let user_match_prediction = self.predictions.read((user_address,match_id));
 
             if match_score.inputed {
                 if user_match_prediction.inputed {
@@ -201,34 +207,30 @@ mod Prediction {
     impl PredictionImpl of super::IPrediction<ContractState> {
 
 
-        fn register_user(ref self: ContractState, id: felt252,username:felt252) {
-           assert(id != '','INVALID_ID');
-           assert(username != '' &&username !=0,'INVALID_ID');
-           assert(!self.registered.read(id)&& !self.registered.read(username),Errors::ALREADY_EXIST);
-           self.registered.write(id,true);
-           self.registered.write(username,true);
-           self.user.write(id,username);
-           self.user_id.write(self.total_users.read(),id);
+        fn register_user(ref self: ContractState, user:User) {
+           assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+           assert(!self.registered.read(user.address),Errors::ALREADY_EXIST);
+           self.registered.write(user.address,true);
+           self.user.write(user.address,user);
+           self.user_by_id.write(user.id,user);
+           self.user_by_index.write(self.total_users.read(),user);
            self.total_users.write(self.total_users.read()+1);
-           self.user_address_pointer.write(get_caller_address(),id);
         }
 
 
 
-        fn get_user_by_id(self: @ContractState,id:felt252) -> felt252 {
-            self.user.read(id)
+        fn get_user_by_id(self: @ContractState,id:felt252) -> User {
+            self.user_by_id.read(id)
         }
 
 
         fn is_address_registered(self: @ContractState,address:ContractAddress) -> bool {
-            self.registered.read(self.user_address_pointer.read(address))
+            self.registered.read(address)
         }
 
-        fn get_user_by_address(self: @ContractState,address:ContractAddress) -> felt252 {
-            self.user.read(self.user_address_pointer.read(address))
+        fn get_user_by_address(self: @ContractState,address:ContractAddress) -> User {
+            self.user.read(address)
         }
-
-
 
         fn upgrade(ref self: ContractState, impl_hash: ClassHash) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
@@ -239,12 +241,13 @@ mod Prediction {
         }
 
 
-        fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256) {
-            assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+        fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256, initiator:ContractAddress) {
+           assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            assert(self.registered.read(initiator),Errors::NOT_REGISTERED);
             let _match = self.match_details.read(match_id);
             assert(_match.inputed,Errors::INVALID_MATCH_ID);
             assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
-            assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+            assert(!self.predictions.read((initiator,match_id)).inputed,Errors::PREDICTED);
             assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
             let score_construct = Score {
                 inputed:true,
@@ -252,11 +255,12 @@ mod Prediction {
                 home,
                 away
             };
-            self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+            self.predictions.write((initiator,match_id),score_construct);           
         }
 
-        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Score>) {
-            assert(self.registered.read(self.user_address_pointer.read(get_caller_address())),Errors::NOT_REGISTERED);
+        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Score>,initiator:ContractAddress) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            assert(self.registered.read(initiator),Errors::NOT_REGISTERED);
             for prediction in predictions {
                 let match_id = prediction.match_id;
                 let home = prediction.home;
@@ -264,7 +268,7 @@ mod Prediction {
                 let _match = self.match_details.read(match_id);
                 assert(_match.inputed,Errors::INVALID_MATCH_ID);
                 assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
-                assert(!self.predictions.read((self.user_address_pointer.read(get_caller_address()),match_id)).inputed,Errors::PREDICTED);
+                assert(!self.predictions.read((initiator,match_id)).inputed,Errors::PREDICTED);
                 assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
                 let score_construct = Score {
                     inputed:true,
@@ -272,7 +276,7 @@ mod Prediction {
                     home,
                     away
                 };
-                self.predictions.write((self.user_address_pointer.read(get_caller_address()),match_id),score_construct);           
+                self.predictions.write((initiator,match_id),score_construct);           
             }
         }
 
@@ -337,7 +341,7 @@ mod Prediction {
 
             while index <= round_details.end {
                 let match_id = self.match_ids.read(index);
-                let user_prediction = self.predictions.read((self.user_address_pointer.read(user),match_id));
+                let user_prediction = self.predictions.read((user,match_id));
                 result.append(user_prediction);
                 index+=1;
             };
@@ -388,10 +392,10 @@ mod Prediction {
 
                 let mut index = start_index;
                 while count < result_size && index < total_players {
-                    let user_id = self.user_id.read(index);
-                    let user_total_score = calculate_user_scores(self,user_id,round);
+                    let user = self.user_by_index.read(index);
+                    let user_total_score = calculate_user_scores(self,user.address,round);
                     let leaderboard_construct = Leaderboard{
-                        user:self.user.read(user_id),
+                        user:self.user.read(user.address),
                         total_score:user_total_score
                     };
                     leaderboard.append(leaderboard_construct);
@@ -423,16 +427,16 @@ mod Prediction {
 
                 let mut user_index = start_index;
                 while count < result_size && user_index < total_players {
-                    let user_id = self.user_id.read(user_index);
+                    let user = self.user_by_index.read(user_index);
                     let mut user_total_score = 0;
                     let mut round_index = self.current_round.read();
                     while round_index > 0 {
-                        let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                        let user_round_total_score = calculate_user_scores(self,user.address,round_index);
                         user_total_score+=user_round_total_score;
                         round_index-=1;
                     };
                     let leaderboard_construct = Leaderboard{
-                        user:self.user.read(user_id),
+                        user:self.user.read(user.address),
                         total_score:user_total_score
                     };
                     leaderboard.append(leaderboard_construct);
@@ -446,15 +450,15 @@ mod Prediction {
 
 
 
-        fn get_user_total_scores(self: @ContractState,user_id:felt252) -> u256 {
+        fn get_user_total_scores(self: @ContractState,address:ContractAddress) -> u256 {
           
-            if(!self.registered.read(user_id)){
+            if(!self.registered.read(address)){
                 return 0;
             }
             let mut user_total_score = 0;
             let mut round_index = self.current_round.read();
             while round_index > 0 {
-                let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                let user_round_total_score = calculate_user_scores(self,address,round_index);
                 user_total_score+=user_round_total_score;
                 round_index-=1;
             };
@@ -469,23 +473,20 @@ mod Prediction {
 
             let mut leaderboard:Option<Leaderboard> = Option::None;
 
-
-
-
             let mut user_index = 0;
             while user_index < total_players {
-                let user_id = self.user_id.read(user_index);
+                let user = self.user_by_index.read(user_index);
                 let mut user_total_score = 0;
                 let mut round_index = self.current_round.read();
                 while round_index > 0 {
-                    let user_round_total_score = calculate_user_scores(self,user_id,round_index);
+                    let user_round_total_score = calculate_user_scores(self,user.address,round_index);
                     user_total_score+=user_round_total_score;
                     round_index-=1;
                 };
                 if let Option::Some(_current) = leaderboard {
                     if user_total_score> _current.total_score{
                         let leaderboard_construct = Leaderboard{
-                            user:self.user.read(user_id),
+                            user:self.user.read(user.address),
                             total_score:user_total_score
                         };
                         leaderboard = Option::Some(leaderboard_construct);
@@ -494,7 +495,7 @@ mod Prediction {
                 }else{
 
                     let leaderboard_construct = Leaderboard{
-                        user:self.user.read(user_id),
+                        user:self.user.read(user.address),
                         total_score:user_total_score
                     };
 
