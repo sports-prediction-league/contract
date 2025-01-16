@@ -1,5 +1,31 @@
 use starknet::class_hash::ClassHash;
 use core::starknet::ContractAddress;
+mod spl_token;
+
+
+#[starknet::interface]
+pub trait IERC20<TContractState> {
+    fn get_name(self: @TContractState) -> felt252;
+    fn get_symbol(self: @TContractState) -> felt252;
+    fn get_decimals(self: @TContractState) -> u8;
+    fn get_total_supply(self: @TContractState) -> felt252;
+    fn balance_of(self: @TContractState, account: ContractAddress) -> felt252;
+    fn allowance(
+        self: @TContractState, owner: ContractAddress, spender: ContractAddress
+    ) -> felt252;
+    fn transfer(ref self: TContractState, recipient: ContractAddress, amount: u256);
+    fn transfer_from(
+        ref self: TContractState,
+        sender: ContractAddress,
+        recipient: ContractAddress,
+        amount: u256
+    );
+    fn approve(ref self: TContractState, spender: ContractAddress, amount: u256);
+    fn increase_allowance(ref self: TContractState, spender: ContractAddress, added_value: felt252);
+    fn decrease_allowance(
+        ref self: TContractState, spender: ContractAddress, subtracted_value: felt252
+    );
+}
 
 pub mod Errors {
     pub const INSUFFICIENT_BALANCE: felt252 = 'INSUFFICIENT_BALANCE';
@@ -26,7 +52,16 @@ pub mod Errors {
     match_id:felt252,
     home: u256,
     away: u256,
-   
+}
+
+
+#[derive(Copy, Drop, Serde, starknet::Store)]
+ pub struct Prediction {
+    inputed:bool,
+    match_id:felt252,
+    home: u256,
+    away: u256,
+    stake: u256,
 }
 
 
@@ -36,6 +71,7 @@ pub mod Errors {
     id:felt252,
     timestamp: u64,
     round: u256,
+   // match_type:MatchType
 }
 
 
@@ -59,12 +95,17 @@ pub mod Errors {
     id:felt252,
     username:felt252,
     address:ContractAddress,
-    total_score:u256,   
+}
+
+#[derive(Drop, Copy, Clone, Serde,starknet::Store)]
+pub enum MatchType {
+    Live,
+    Virtual,
 }
 
 
 #[starknet::interface]
-pub trait IPrediction<TContractState> {
+pub trait ISPL<TContractState> {
     fn register_user(ref self: TContractState, user:User);
     fn get_user_by_id(self: @TContractState,id:felt252) -> User;
     fn get_user_by_address(self: @TContractState,address:ContractAddress) -> User;
@@ -74,21 +115,22 @@ pub trait IPrediction<TContractState> {
     fn get_leaderboard(self: @TContractState,start_index:u256, size:u256) -> Array<Leaderboard>;
     fn register_matches(ref self: TContractState, matches:Array<Match>);
     fn set_scores(ref self: TContractState, scores:Array<Score>);
-    fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Score>;
+    fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Prediction>;
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState,address:ContractAddress) -> bool;
     fn get_user_total_scores(self: @TContractState,address:ContractAddress) -> u256;
     fn get_first_position(self: @TContractState) -> Option<Leaderboard>;
-    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Score>,initiator:ContractAddress);
-    fn make_prediction(ref self: TContractState, match_id:felt252,home:u256,away:u256, initiator:ContractAddress);
+    fn make_bulk_prediction(ref self: TContractState, predictions:Array<Prediction>);
+    fn make_prediction(ref self: TContractState, prediction:Prediction);
+    fn update_erc20(ref self: TContractState, new_address: ContractAddress);
 }
 
 #[starknet::contract]
-mod Prediction {
+mod SPL {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard,Match,RoundDetails,User};
-    use starknet::{ContractAddress,get_caller_address,get_block_timestamp};
+    use super::{Errors,Score,Leaderboard,Match, RoundDetails,User,Prediction,IERC20Dispatcher,IERC20DispatcherTrait};
+    use starknet::{ContractAddress,get_caller_address,get_block_timestamp,get_contract_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
     use core::num::traits::Zero;
@@ -98,6 +140,8 @@ mod Prediction {
     pub enum Event {
         Upgraded: Upgraded,
     }
+
+
 
     #[derive(Copy, Drop, Debug, PartialEq, starknet::Event)]
     pub struct Upgraded {
@@ -120,9 +164,11 @@ mod Prediction {
         match_index:Map::<felt252,u256>,
         match_ids:Map::<u256,felt252>,
         scores:Map::<felt252,Score>,
-        predictions:Map::<(ContractAddress,felt252),Score>,
+        predictions:Map::<(ContractAddress,felt252),Prediction>,
+        match_pool:Map::<felt252,u256>,
         current_round:u256,
         round_details:Map::<u256,RoundDetails>,
+        erc20_token:ContractAddress,
     }
 
 
@@ -131,8 +177,10 @@ mod Prediction {
     fn constructor(
         ref self: ContractState,
         owner:ContractAddress,
+        erc20_token:ContractAddress,
     ) {
         self.owner.write(owner);
+        self.erc20_token.write(erc20_token);
     }
 
   
@@ -204,14 +252,15 @@ mod Prediction {
     }
 
     #[abi(embed_v0)]
-    impl PredictionImpl of super::IPrediction<ContractState> {
+    impl SPLImpl of super::ISPL<ContractState> {
 
 
         fn register_user(ref self: ContractState, user:User) {
-           assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
-           assert(!self.registered.read(user.address),Errors::ALREADY_EXIST);
-           self.registered.write(user.address,true);
-           self.user.write(user.address,user);
+           assert(!self.registered.read(get_caller_address()),Errors::ALREADY_EXIST);
+           assert(user.address.is_non_zero(),Errors::INVALID_ADDRESS);
+           assert(user.username != 0 && user.id != 0, 'INVALID_PARAMS');
+           self.registered.write(get_caller_address(),true);
+           self.user.write(get_caller_address(),user);
            self.user_by_id.write(user.id,user);
            self.user_by_index.write(self.total_users.read(),user);
            self.total_users.write(self.total_users.read()+1);
@@ -240,43 +289,53 @@ mod Prediction {
             self.emit(Event::Upgraded(Upgraded { implementation: impl_hash }));
         }
 
+        fn update_erc20(ref self: ContractState, new_address: ContractAddress) {
+            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
+            assert(new_address.is_non_zero(), Errors::INVAliD_CLASSHASH);
+            self.erc20_token.write(new_address);
+        }
 
-        fn make_prediction(ref self: ContractState, match_id:felt252,home:u256,away:u256, initiator:ContractAddress) {
-           assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
-            assert(self.registered.read(initiator),Errors::NOT_REGISTERED);
+
+        fn make_prediction(ref self: ContractState, prediction:Prediction) {
+            assert(self.registered.read(get_caller_address()),Errors::NOT_REGISTERED);
+            let match_id = prediction.match_id;
             let _match = self.match_details.read(match_id);
             assert(_match.inputed,Errors::INVALID_MATCH_ID);
             assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
-            assert(!self.predictions.read((initiator,match_id)).inputed,Errors::PREDICTED);
+            assert(!self.predictions.read((get_caller_address(),match_id)).inputed,Errors::PREDICTED);
             assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
-            let score_construct = Score {
-                inputed:true,
-                match_id,
-                home,
-                away
-            };
-            self.predictions.write((initiator,match_id),score_construct);           
+            if prediction.stake> 0 {
+                let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_token.read()};
+                erc20_dispatcher.transfer_from(get_caller_address(),get_contract_address(),prediction.stake);
+            }
+            self.predictions.write((get_caller_address(),match_id),Prediction{inputed:true,..prediction});
+            self.match_pool.write(match_id,self.match_pool.read(match_id)+prediction.stake);         
         }
 
-        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Score>,initiator:ContractAddress) {
-            assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
-            assert(self.registered.read(initiator),Errors::NOT_REGISTERED);
+        fn make_bulk_prediction(ref self: ContractState, predictions:Array<Prediction>) {
+            assert(self.registered.read(get_caller_address()),Errors::NOT_REGISTERED);
+            let mut total_stakes:u256 = 0;
+            for prediction in predictions.clone() {
+                total_stakes+=prediction.stake;
+            };
+            if total_stakes> 0 {
+                let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_token.read()};
+                erc20_dispatcher.transfer_from(get_caller_address(),get_contract_address(),total_stakes);
+            }
             for prediction in predictions {
                 let match_id = prediction.match_id;
-                let home = prediction.home;
-                let away = prediction.away;
                 let _match = self.match_details.read(match_id);
                 assert(_match.inputed,Errors::INVALID_MATCH_ID);
                 assert(!self.scores.read(_match.id).inputed,'MATCH_SCORED');
-                assert(!self.predictions.read((initiator,match_id)).inputed,Errors::PREDICTED);
+                assert(!self.predictions.read((get_caller_address(),match_id)).inputed,Errors::PREDICTED);
                 assert(get_block_timestamp()+600 < (_match.timestamp),Errors::PREDICTION_CLOSED);
-                let score_construct = Score {
+                let prediction_construct = Prediction {
                     inputed:true,
-                    match_id,
-                    home,
-                    away
+                   ..prediction
                 };
-                self.predictions.write((initiator,match_id),score_construct);           
+                self.predictions.write((get_caller_address(),match_id),prediction_construct);
+                self.match_pool.write(match_id,self.match_pool.read(match_id)+prediction.stake);         
+
             }
         }
 
@@ -321,13 +380,15 @@ mod Prediction {
             self.version.read()
         }
 
+       
+
         fn get_current_round(self: @ContractState) -> u256 {
             self.current_round.read()
         }
 
 
 
-        fn get_user_predictions(self: @ContractState,round:u256,user:ContractAddress) -> Array<Score> {
+        fn get_user_predictions(self: @ContractState,round:u256,user:ContractAddress) -> Array<Prediction> {
             assert(round>0, Errors::INVALID_ROUND);
             assert(round<= self.current_round.read(),'OUT_OF_BOUNDS');
             let mut result = array![];

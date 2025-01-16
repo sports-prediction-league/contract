@@ -1,17 +1,17 @@
-use starknet::ContractAddress;
-
-use snforge_std::{declare, ContractClassTrait, DeclareResultTrait};
-
-use contract::IPredictionSafeDispatcher;
-use contract::IPredictionSafeDispatcherTrait;
-use contract::IPredictionDispatcher;
-use contract::IPredictionDispatcherTrait;
-
-fn deploy_contract(name: ByteArray) -> ContractAddress {
-    let contract = declare(name).unwrap().contract_class();
-    let (contract_address, _) = contract.deploy(@ArrayTrait::new()).unwrap();
-    contract_address
-}
+// use starknet::ContractAddress;
+// 
+// use snforge_std::{declare, ContractClassTrait, DeclareResultTrait};
+// 
+// use contract::ISPLSafeDispatcher;
+// use contract::ISPLSafeDispatcherTrait;
+// use contract::ISPLDispatcher;
+// use contract::ISPLDispatcherTrait;
+// 
+// fn deploy_contract(name: ByteArray) -> ContractAddress {
+//     let contract = declare(name).unwrap().contract_class();
+//     let (contract_address, _) = contract.deploy(@ArrayTrait::new()).unwrap();
+//     contract_address
+// }
 
 
 
