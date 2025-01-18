@@ -55,6 +55,13 @@ pub mod Errors {
 }
 
 
+#[derive(Drop, Serde)]
+ pub struct Reward {
+    user:ContractAddress,
+    reward: u256,
+}
+
+
 #[derive(Copy, Drop, Serde, starknet::Store)]
  pub struct Prediction {
     inputed:bool,
@@ -97,6 +104,18 @@ pub mod Errors {
     address:ContractAddress,
 }
 
+#[derive(Drop, Serde)]
+pub struct PredictionDetails {
+    user:User,
+    prediction:Prediction,
+}
+
+#[derive(Drop, Serde)]
+pub struct MatchPrediction {
+    predictions:Array<PredictionDetails>,
+    match_pool:u256,
+}
+
 #[derive(Drop, Copy, Clone, Serde,starknet::Store)]
 pub enum MatchType {
     Live,
@@ -114,7 +133,7 @@ pub trait ISPL<TContractState> {
     fn get_leaderboard_by_round(self: @TContractState,start_index:u256, size:u256,round:u256) -> Array<Leaderboard>;
     fn get_leaderboard(self: @TContractState,start_index:u256, size:u256) -> Array<Leaderboard>;
     fn register_matches(ref self: TContractState, matches:Array<Match>);
-    fn set_scores(ref self: TContractState, scores:Array<Score>);
+    fn set_scores(ref self: TContractState, scores:Array<Score>,rewards:Array<Reward>);
     fn get_user_predictions(self: @TContractState,round:u256,user:ContractAddress) -> Array<Prediction>;
     fn get_match_scores(self: @TContractState,round:u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
@@ -124,12 +143,15 @@ pub trait ISPL<TContractState> {
     fn make_bulk_prediction(ref self: TContractState, predictions:Array<Prediction>);
     fn make_prediction(ref self: TContractState, prediction:Prediction);
     fn update_erc20(ref self: TContractState, new_address: ContractAddress);
+    fn get_match_predictions(self: @TContractState,match_id:felt252) -> MatchPrediction;
+    fn claim_reward(ref self: TContractState);
+    fn get_user_reward(self: @TContractState,user:ContractAddress) -> u256;
 }
 
 #[starknet::contract]
 mod SPL {
     use starknet::storage::Map;
-    use super::{Errors,Score,Leaderboard,Match, RoundDetails,User,Prediction,IERC20Dispatcher,IERC20DispatcherTrait};
+    use super::{Errors,Score,Reward,MatchPrediction,PredictionDetails, Leaderboard,Match, RoundDetails,User,Prediction,IERC20Dispatcher,IERC20DispatcherTrait};
     use starknet::{ContractAddress,get_caller_address,get_block_timestamp,get_contract_address};
     use starknet::class_hash::ClassHash;
     use starknet::SyscallResultTrait;
@@ -167,6 +189,7 @@ mod SPL {
         predictions:Map::<(ContractAddress,felt252),Prediction>,
         match_pool:Map::<felt252,u256>,
         current_round:u256,
+        user_rewards:Map::<ContractAddress,u256>,
         round_details:Map::<u256,RoundDetails>,
         erc20_token:ContractAddress,
     }
@@ -363,7 +386,7 @@ mod SPL {
             self.current_round.write(upcoming_round);
         }
 
-        fn set_scores(ref self: ContractState, scores:Array<Score>) {
+        fn set_scores(ref self: ContractState, scores:Array<Score>,rewards:Array<Reward>) {
             assert(get_caller_address() == self.owner.read(),Errors::UNAUTHORIZED);
             for score in scores {
                 let _match = self.match_details.read(score.match_id);
@@ -372,11 +395,30 @@ mod SPL {
                 assert(!self.scores.read(score.match_id).inputed, Errors::SCORED);
                 assert(score.inputed,'INVALID_PARAMS');
                 self.scores.write(score.match_id,score);
+            };
+
+            for reward in rewards {
+                if reward.reward <1 {
+                    continue;
+                }
+                self.user_rewards.write(reward.user,self.user_rewards.read(reward.user)+reward.reward);
             }
         }
 
 
-        fn get_version(self: @ContractState) -> u256 {
+        fn get_user_reward(self: @ContractState,user:ContractAddress) -> u256 {
+            self.user_rewards.read(user)
+        }
+
+
+        fn claim_reward(ref self: ContractState) {
+            let reward = self.user_rewards.read(get_caller_address());
+            assert(reward>0, 'ZERO_BALANCE');
+            let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_token.read()};
+            erc20_dispatcher.transfer(get_caller_address(),reward);
+        }
+
+         fn get_version(self: @ContractState) -> u256 {
             self.version.read()
         }
 
@@ -432,6 +474,33 @@ mod SPL {
 
 
             result
+        }
+
+
+        fn get_match_predictions(self: @ContractState,match_id:felt252) -> MatchPrediction{
+            let total_players = self.total_users.read();
+            let mut index = 0;
+            let mut predictions = array![];
+            while index < total_players {
+                let user = self.user_by_index.read(index);
+                let prediction = self.predictions.read((user.address,match_id));
+                if prediction.inputed {
+                    predictions.append(PredictionDetails{
+                        user,
+                        prediction
+                    });
+                }
+
+                 index+=1;
+            };
+
+            let match_pool = self.match_pool.read(match_id);
+            MatchPrediction {
+                predictions,
+                match_pool
+            }
+             
+
         }
 
 
