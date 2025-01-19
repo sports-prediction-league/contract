@@ -414,6 +414,7 @@ mod SPL {
         fn claim_reward(ref self: ContractState) {
             let reward = self.user_rewards.read(get_caller_address());
             assert(reward>0, 'ZERO_BALANCE');
+            self.user_rewards.write(get_caller_address(),0);
             let erc20_dispatcher = IERC20Dispatcher{contract_address: self.erc20_token.read()};
             erc20_dispatcher.transfer(get_caller_address(),reward);
         }
