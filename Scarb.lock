@@ -2,14 +2,6 @@
 version = 1
 
 [[package]]
-name = "contract"
-version = "0.1.0"
-dependencies = [
- "openzeppelin",
- "snforge_std",
-]
-
-[[package]]
 name = "openzeppelin"
 version = "0.15.1"
 source = "registry+https://scarbs.xyz/"
@@ -101,4 +93,12 @@ version = "0.31.0"
 source = "git+https://github.com/foundry-rs/starknet-foundry?tag=v0.31.0#72ea785ca354e9e506de3e5d687da9fb2c1b3c67"
 dependencies = [
  "snforge_scarb_plugin",
+]
+
+[[package]]
+name = "spl"
+version = "0.1.0"
+dependencies = [
+ "openzeppelin",
+ "snforge_std",
 ]
