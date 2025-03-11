@@ -24,6 +24,9 @@ pub trait ISPL<TContractState> {
     fn get_user_predictions(
         self: @TContractState, round: u256, user: ContractAddress
     ) -> Array<Prediction>;
+    fn get_user_matches_predictions(
+        self: @TContractState, matches: Array<felt252>, user: ContractAddress
+    ) -> Array<Prediction>;
     fn get_match_scores(self: @TContractState, round: u256) -> Array<Score>;
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState, address: ContractAddress) -> bool;
@@ -33,6 +36,9 @@ pub trait ISPL<TContractState> {
     fn make_prediction(ref self: TContractState, prediction: Prediction);
     fn update_erc20(ref self: TContractState, new_address: ContractAddress);
     fn get_match_predictions(self: @TContractState, match_id: felt252) -> Array<PredictionDetails>;
+    fn get_matches_predictions(
+        self: @TContractState, match_ids: Array<felt252>
+    ) -> Array<PredictionDetails>;
     fn claim_reward(ref self: TContractState);
     fn get_user_reward(self: @TContractState, user: ContractAddress) -> u256;
 }

@@ -3,7 +3,6 @@ pub mod mods;
 #[starknet::contract]
 pub mod SPL {
     use openzeppelin_token::erc20::interface::ERC20ABISafeDispatcherTrait;
-    use starknet::storage::Map;
     use super::mods::{
         types::{
             Score, Reward, PredictionDetails, Leaderboard, Match, RoundDetails, MatchType, User,
@@ -11,10 +10,11 @@ pub mod SPL {
         },
         constants::Errors, interfaces::ispl::ISPL
     };
-    use starknet::{ContractAddress, get_caller_address, get_block_timestamp, get_contract_address};
-    use starknet::class_hash::ClassHash;
-    use starknet::SyscallResultTrait;
-    use core::num::traits::Zero;
+    use starknet::{
+        storage::Map, class_hash::ClassHash, SyscallResultTrait, ContractAddress,
+        get_caller_address, get_block_timestamp, get_contract_address
+    };
+    use core::{num::traits::Zero};
 
     use openzeppelin_token::{erc20::interface::{ERC20ABISafeDispatcher},};
 
@@ -330,6 +330,22 @@ pub mod SPL {
             result
         }
 
+
+        fn get_user_matches_predictions(
+            self: @ContractState, matches: Array<felt252>, user: ContractAddress
+        ) -> Array<Prediction> {
+            let mut result = array![];
+
+            for match_id in matches {
+                let user_prediction = self.predictions.read((user, match_id));
+                if user_prediction.inputed {
+                    result.append(user_prediction);
+                }
+            };
+
+            result
+        }
+
         fn get_match_scores(self: @ContractState, round: u256) -> Array<Score> {
             assert(round > 0, Errors::INVALID_ROUND);
             assert(round <= self.current_round.read(), 'OUT_OF_BOUNDS');
@@ -367,6 +383,27 @@ pub mod SPL {
                 }
 
                 index += 1;
+            };
+
+            predictions
+        }
+
+        fn get_matches_predictions(
+            self: @ContractState, match_ids: Array<felt252>
+        ) -> Array<PredictionDetails> {
+            let total_players = self.total_users.read();
+            let mut index = 1;
+            let mut predictions = array![];
+            for match_id in match_ids {
+                while index <= total_players {
+                    let user = self.user_by_index.read(index);
+                    let prediction = self.predictions.read((user.address, match_id));
+                    if prediction.inputed {
+                        predictions.append(PredictionDetails { user, prediction });
+                    }
+
+                    index += 1;
+                };
             };
 
             predictions
@@ -463,7 +500,7 @@ pub mod SPL {
 
             let mut leaderboard: Option<Leaderboard> = Option::None;
 
-            let mut user_index = 0;
+            let mut user_index = 1;
             while user_index <= total_players {
                 let user = self.user_by_index.read(user_index);
                 let mut user_total_score = 0;
