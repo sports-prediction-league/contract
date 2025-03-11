@@ -450,7 +450,12 @@ fn test_set_score() {
                 );
 
             scores.append(Score { home: 1, away: 0, inputed: true, match_id: id });
-            predictions.append(Prediction { match_id: id, odds: '1', stake: 0, inputed: true });
+            predictions
+                .append(
+                    Prediction {
+                        match_id: id, id: '1', stake: 0, inputed: true, pair: Option::None
+                    }
+                );
             if i % 2 != 0 {
                 rewards
                     .append(
@@ -585,7 +590,9 @@ fn test_make_prediction_unregistered_user() {
     stop_cheat_caller_address(spl_contract_address);
 
     start_cheat_caller_address(spl_contract_address, USER());
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_prediction(prediction);
     stop_cheat_caller_address(spl_contract_address);
@@ -624,7 +631,9 @@ fn test_make_bulk_prediction_unregistered_user() {
     stop_cheat_caller_address(spl_contract_address);
 
     start_cheat_caller_address(spl_contract_address, USER());
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_bulk_prediction(array![prediction]);
     stop_cheat_caller_address(spl_contract_address);
@@ -666,7 +675,9 @@ fn test_make_prediction_invalid_match_id() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 100, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 100, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_prediction(prediction);
     stop_cheat_caller_address(spl_contract_address);
@@ -707,7 +718,9 @@ fn test_make_bulk_prediction_invalid_match_id() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 100, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 100, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_bulk_prediction(array![prediction]);
     stop_cheat_caller_address(spl_contract_address);
@@ -758,7 +771,9 @@ fn test_make_prediction_scored_match() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_prediction(prediction);
     stop_cheat_caller_address(spl_contract_address);
@@ -808,7 +823,9 @@ fn test_make_bulk_prediction_scored_match() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_bulk_prediction(array![prediction]);
     stop_cheat_caller_address(spl_contract_address);
@@ -851,7 +868,9 @@ fn test_make_prediction_prediction_closed() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
     start_cheat_block_timestamp(spl_contract_address, (*matches[0].timestamp));
     spl.make_prediction(prediction);
     stop_cheat_block_timestamp(spl_contract_address);
@@ -894,7 +913,9 @@ fn test_make_bulk_prediction_prediction_closed() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
     start_cheat_block_timestamp(spl_contract_address, (*matches[0].timestamp));
     spl.make_bulk_prediction(array![prediction]);
     stop_cheat_block_timestamp(spl_contract_address);
@@ -945,7 +966,9 @@ fn test_make_prediction_with_stake() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: stake };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: stake, pair: Option::None
+    };
     start_cheat_caller_address(spl.get_erc20(), user);
     erc20.approve(spl_contract_address, stake).unwrap();
     stop_cheat_caller_address(spl.get_erc20());
@@ -1003,7 +1026,7 @@ fn test_make_bulk_prediction_with_stake() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: stake };
+    let prediction = Prediction { inputed: true, match_id: 1, id: '1', stake, pair: Option::None };
     start_cheat_caller_address(spl.get_erc20(), user);
     erc20.approve(spl_contract_address, stake).unwrap();
     stop_cheat_caller_address(spl.get_erc20());
@@ -1061,13 +1084,15 @@ fn test_make_prediction_without_stake() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_prediction(prediction);
     let user_predictions = spl.get_user_predictions(1, user);
 
     assert_eq!(user_predictions.len(), 1);
-    assert_eq!(*user_predictions[0].odds, prediction.odds);
+    assert_eq!(*user_predictions[0].id, prediction.id);
     assert_eq!(erc20.balance_of(user).unwrap(), stake);
     assert_eq!(erc20.balance_of(spl_contract_address).unwrap(), 0);
     stop_cheat_caller_address(spl_contract_address);
@@ -1117,13 +1142,15 @@ fn test_make_bulk_prediction_without_stake() {
     let user_construct = User { id: 1, username: 'jane', address: user };
 
     spl.register_user(user_construct);
-    let prediction = Prediction { inputed: true, match_id: 1, odds: '1', stake: 0 };
+    let prediction = Prediction {
+        inputed: true, match_id: 1, id: '1', stake: 0, pair: Option::None
+    };
 
     spl.make_bulk_prediction(array![prediction]);
     let user_predictions = spl.get_user_predictions(1, user);
 
     assert_eq!(user_predictions.len(), 1);
-    assert_eq!(*user_predictions[0].odds, prediction.odds);
+    assert_eq!(*user_predictions[0].id, prediction.id);
     assert_eq!(erc20.balance_of(user).unwrap(), stake);
     assert_eq!(erc20.balance_of(spl_contract_address).unwrap(), 0);
     stop_cheat_caller_address(spl_contract_address);
@@ -1160,7 +1187,12 @@ fn test_get_leaderboard() {
                 );
 
             scores.append(Score { home: 1, away: 0, inputed: true, match_id: id });
-            predictions.append(Prediction { match_id: id, odds: '1', stake: 0, inputed: true });
+            predictions
+                .append(
+                    Prediction {
+                        match_id: id, id: '1', stake: 0, inputed: true, pair: Option::None
+                    }
+                );
             if i % 2 != 0 {
                 rewards
                     .append(
@@ -1261,7 +1293,12 @@ fn test_claim_reward() {
                 );
 
             scores.append(Score { home: 1, away: 0, inputed: true, match_id: id });
-            predictions.append(Prediction { match_id: id, odds: '1', stake: 0, inputed: true });
+            predictions
+                .append(
+                    Prediction {
+                        match_id: id, id: '1', stake: 0, inputed: true, pair: Option::None
+                    }
+                );
             if i % 2 != 0 {
                 rewards
                     .append(

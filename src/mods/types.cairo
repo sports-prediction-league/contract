@@ -23,8 +23,9 @@ pub struct Reward {
 pub struct Prediction {
     pub inputed: bool,
     pub match_id: felt252,
-    pub odds: felt252,
+    pub id: felt252,
     pub stake: u256,
+    pub pair: Option<felt252>
 }
 
 
