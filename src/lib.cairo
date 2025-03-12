@@ -169,12 +169,24 @@ pub mod SPL {
             assert(self.registered.read(caller), Errors::NOT_REGISTERED);
             let mut total_stakes: u256 = 0;
 
+            let is_pair = predictions[0].pair.is_some();
+
+            if is_pair {
+                total_stakes = *predictions[0].stake;
+            }
+
             for prediction in predictions {
                 let match_id = prediction.match_id;
                 let _match = self.match_details.read(match_id);
                 assert(_match.inputed, Errors::INVALID_MATCH_ID);
                 assert(!self.match_scores.read(_match.id).inputed, 'MATCH_SCORED');
                 assert(!self.predictions.read((caller, match_id)).inputed, Errors::PREDICTED);
+                if is_pair {
+                    assert(prediction.pair.is_some(), 'INVALID_PARAMS');
+                    assert(prediction.stake == total_stakes, 'INVALID_PARAMS');
+                } else {
+                    assert(prediction.pair.is_none(), 'INVALID_PARAMS');
+                }
                 if let MatchType::Live = _match.match_type {
                     assert(
                         get_block_timestamp() + 600 < (_match.timestamp), Errors::PREDICTION_CLOSED
@@ -186,7 +198,9 @@ pub mod SPL {
                 self
                     .predictions
                     .write((caller, match_id), Prediction { inputed: true, ..prediction });
-                total_stakes += prediction.stake;
+                if !is_pair {
+                    total_stakes += prediction.stake;
+                }
             };
 
             if total_stakes > 0 {
