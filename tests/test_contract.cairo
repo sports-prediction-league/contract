@@ -317,52 +317,51 @@ fn test_set_score_invalid_match_id() {
     stop_cheat_caller_address(spl_contract_address);
 }
 
-// #[test]
-// #[should_panic(expected: 'SCORED')]
-// fn test_set_score_already_scored() {
-//     let spl_contract_address = _setup_();
-//     let spl = ISPLDispatcher { contract_address: spl_contract_address };
-//     let owner: ContractAddress = OWNER();
-//     start_cheat_caller_address(spl_contract_address, owner);
-//     let _timestamp = get_block_timestamp();
-//     let mut matches: Array<Match> = array![];
-//     let mut scores: Array<Score> = array![];
+#[test]
+#[should_panic(expected: 'SCORED')]
+fn test_set_score_already_scored() {
+    let spl_contract_address = _setup_();
+    let spl = ISPLDispatcher { contract_address: spl_contract_address };
+    let owner: ContractAddress = OWNER();
+    start_cheat_caller_address(spl_contract_address, owner);
+    let _timestamp = get_block_timestamp();
+    let mut matches: Array<Match> = array![];
+    let mut scores: Array<Score> = array![];
 
-//     let min: u8 = 1_u8;
-//     let max: u8 = 11_u8;
-//     for i in min
-//         ..max {
-//             let id: felt252 = i.try_into().unwrap();
-//             let timestamp: u64 = ((i.try_into().unwrap() * 100) +
-//             _timestamp).try_into().unwrap();
-//             matches
-//                 .append(
-//                     Match {
-//                         inputed: true,
-//                         id,
-//                         timestamp,
-//                         round: Option::None,
-//                         match_type: MatchType::Virtual
-//                     }
-//                 );
+    let min: u8 = 1_u8;
+    let max: u8 = 11_u8;
+    for i in min
+        ..max {
+            let id: felt252 = i.try_into().unwrap();
+            let timestamp: u64 = ((i.try_into().unwrap() * 100) + _timestamp).try_into().unwrap();
+            matches
+                .append(
+                    Match {
+                        inputed: true,
+                        id,
+                        timestamp,
+                        round: Option::None,
+                        match_type: MatchType::Virtual
+                    }
+                );
 
-//             scores.append(Score { home: 1, away: 0, inputed: true, match_id: id })
-//         };
+            scores.append(Score { home: 1, away: 0, inputed: true, match_id: id })
+        };
 
-//     assert_eq!(spl.get_current_round(), 0);
-//     spl.register_matches(matches.clone());
-//     assert_eq!(spl.get_current_round(), 1);
-//     let match_by_id = spl.get_match_by_id(1.try_into().unwrap());
-//     assert_eq!(match_by_id.timestamp, *matches[0].timestamp);
-//     let match_index = spl.get_match_index(10.try_into().unwrap());
-//     assert_eq!(match_index, 10);
-//     start_cheat_block_timestamp(spl_contract_address, *matches[matches.len() - 1].timestamp +
-//     120);
-//     spl.set_scores(scores.clone(), array![]);
-//     spl.set_scores(scores, array![]);
-//     stop_cheat_block_timestamp(spl_contract_address);
-//     stop_cheat_caller_address(spl_contract_address);
-// }
+    assert_eq!(spl.get_current_round(), 0);
+    spl.register_matches(matches.clone());
+    assert_eq!(spl.get_current_round(), 1);
+    let match_by_id = spl.get_match_by_id(1.try_into().unwrap());
+    assert_eq!(match_by_id.timestamp, *matches[0].timestamp);
+    let match_index = spl.get_match_index(10.try_into().unwrap());
+    assert_eq!(match_index, 10);
+    start_cheat_block_timestamp(spl_contract_address, *matches[matches.len() - 1].timestamp + 120);
+    spl.set_scores(scores.clone(), array![]);
+    spl.set_scores(scores, array![]);
+    stop_cheat_block_timestamp(spl_contract_address);
+    stop_cheat_caller_address(spl_contract_address);
+}
+
 
 #[test]
 #[should_panic(expected: 'USER_NOT_PREDICTED')]
