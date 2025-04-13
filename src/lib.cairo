@@ -52,6 +52,7 @@ pub mod SPL {
         user_rewards: Map::<ContractAddress, u256>,
         round_details: Map::<u256, RoundDetails>,
         erc20_token: ContractAddress,
+        rewarded: Map::<(ContractAddress, felt252), bool>
     }
 
 
@@ -259,6 +260,9 @@ pub mod SPL {
         fn set_scores(ref self: ContractState, scores: Array<Score>, rewards: Array<Reward>) {
             assert(get_caller_address() == self.owner.read(), Errors::UNAUTHORIZED);
             for score in scores {
+                if self.match_scores.read(score.match_id).inputed {
+                    continue;
+                }
                 let _match = self.match_details.read(score.match_id);
                 if let MatchType::Live = _match.match_type {
                     assert(get_block_timestamp() >= _match.timestamp + 5400, 'MATCH_NOT_ENDED');
@@ -266,13 +270,16 @@ pub mod SPL {
                     assert(get_block_timestamp() >= _match.timestamp + 120, 'MATCH_NOT_ENDED');
                 }
                 assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                assert(!self.match_scores.read(score.match_id).inputed, Errors::SCORED);
+                // assert(!self.match_scores.read(score.match_id).inputed, Errors::SCORED);
                 assert(score.inputed, 'INVALID_PARAMS');
                 self.match_scores.write(score.match_id, score);
             };
 
             for reward in rewards {
                 if reward.reward < 1 {
+                    continue;
+                }
+                if self.rewarded.read((reward.user, reward.match_id)) {
                     continue;
                 }
                 assert(
@@ -285,6 +292,7 @@ pub mod SPL {
                 self
                     .user_rewards
                     .write(reward.user, self.user_rewards.read(reward.user) + reward.reward);
+                self.rewarded.write((reward.user, reward.match_id), true);
             }
         }
 
