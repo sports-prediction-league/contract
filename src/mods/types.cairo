@@ -5,8 +5,7 @@ use core::starknet::ContractAddress;
 pub struct Score {
     pub inputed: bool,
     pub match_id: felt252,
-    pub home: u256,
-    pub away: u256,
+    pub winner_odd: felt252,
 }
 
 
@@ -19,23 +18,48 @@ pub struct Reward {
 }
 
 
-#[derive(Copy, Drop, Debug, PartialEq, Serde, starknet::Store)]
-pub struct Prediction {
-    pub inputed: bool,
-    pub match_id: felt252,
-    pub id: felt252,
+#[derive(Serde, Drop)]
+pub struct RawPrediction {
     pub stake: u256,
+    pub prediction_type: RawPredictionType,
     pub pair: Option<felt252>
 }
 
 
-#[derive(Copy, Drop, Serde, starknet::Store)]
+#[derive(Copy, Drop, Debug, PartialEq, Serde, starknet::Store)]
+pub struct Prediction {
+    pub inputed: bool,
+    // pub match_id: felt252,
+    // pub odd_id: felt252,
+    pub stake: u256,
+    pub prediction_type: PredictionType,
+    // pub pair: Option<felt252>
+}
+
+
+#[derive(Copy, Drop, Debug, Serde, starknet::Store)]
 pub struct Match {
     pub inputed: bool,
     pub id: felt252,
     pub timestamp: u64,
     pub round: Option<u256>,
-    pub match_type: MatchType
+    pub match_type: MatchType,
+    pub winner_odd: Option<felt252>
+}
+
+
+#[derive(Drop, Serde)]
+pub struct Odd {
+    pub id: felt252,
+    pub value: u256,
+}
+#[derive(Drop, Serde)]
+pub struct RawMatch {
+    pub id: felt252,
+    pub timestamp: u64,
+    pub round: Option<u256>,
+    pub match_type: MatchType,
+    pub odds: Array<Odd>
 }
 
 
@@ -67,9 +91,28 @@ pub struct PredictionDetails {
 }
 
 
-#[derive(Drop, Copy, Clone, Serde, starknet::Store)]
+#[derive(Drop, Copy, Clone,Debug, Serde, starknet::Store)]
 pub enum MatchType {
     #[default]
     Virtual,
     Live,
+}
+
+#[derive(Drop, Copy, Debug, PartialEq, Serde, starknet::Store)]
+pub struct PredictionVariants {
+    pub match_id: felt252,
+    pub odd: felt252
+}
+#[derive(Drop, Copy, Debug, PartialEq, Serde, starknet::Store)]
+pub enum PredictionType {
+    #[default]
+    Single: PredictionVariants,
+    Multiple: felt252,
+}
+
+#[derive(Serde, Drop)]
+pub enum RawPredictionType {
+    #[default]
+    Single: PredictionVariants,
+    Multiple: Array<PredictionVariants>
 }
