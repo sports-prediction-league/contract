@@ -14,7 +14,7 @@ pub mod SPL {
         storage::Map, class_hash::ClassHash, SyscallResultTrait, ContractAddress,
         get_caller_address, get_block_timestamp, get_contract_address
     };
-    use core::{num::traits::Zero,};
+    use core::{num::traits::Zero};
 
     use openzeppelin_token::{erc20::interface::{ERC20ABISafeDispatcher},};
 
@@ -214,6 +214,123 @@ pub mod SPL {
         }
 
 
+        fn make_bulk_prediction(ref self: ContractState, predictions: Array<RawPrediction>) {
+            let caller = get_caller_address();
+            assert(self.registered.read(caller), Errors::NOT_REGISTERED);
+            let is_single_type = match predictions[0].prediction_type {
+                RawPredictionType::Single(_) => true,
+                _ => false
+            };
+            let mut total_stake = 0;
+            for prediction in predictions {
+                match prediction.prediction_type {
+                    RawPredictionType::Single(val) => {
+                        assert(is_single_type, 'INVALID_PARAMS');
+                        let _match = self.match_details.read(val.match_id);
+                        assert(_match.inputed, Errors::INVALID_MATCH_ID);
+                        assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                        assert(!self.predicted.read((caller, val.match_id)), Errors::PREDICTED);
+                        if let MatchType::Live = _match.match_type {
+                            assert(
+                                get_block_timestamp() + 600 < (_match.timestamp),
+                                Errors::PREDICTION_CLOSED
+                            );
+                        } else {
+                            assert(
+                                get_block_timestamp() < (_match.timestamp),
+                                Errors::PREDICTION_CLOSED
+                            );
+                        }
+
+                        let prediction_construct = Prediction {
+                            stake: prediction.stake,
+                            inputed: true,
+                            prediction_type: PredictionType::Single(val),
+                            // pair: Option::None
+                        };
+                        self.predicted.write((caller, val.match_id), true);
+                        self.predictions.write((caller, val.match_id), prediction_construct);
+
+                        let match_predictions_count = self
+                            .match_predictions_count
+                            .read(val.match_id);
+
+                        self.prediction_user_id_pointer.write(match_predictions_count + 1, caller);
+                        self
+                            .prediction_user_index_pointer
+                            .write(caller, match_predictions_count + 1);
+                        self
+                            .match_predictions_count
+                            .write(val.match_id, match_predictions_count + 1);
+                    },
+                    RawPredictionType::Multiple(val) => {
+                        assert(!is_single_type, 'INVALID_PARAMS');
+
+                        assert(prediction.pair.is_some(), 'INVALID_PARAMS');
+                        // let mut prediction_pair = array![];
+                        let mut pair_index = 0;
+                        for _val in val {
+                            let _match = self.match_details.read(_val.match_id);
+                            assert(_match.inputed, Errors::INVALID_MATCH_ID);
+                            assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                            assert(
+                                !self.predicted.read((caller, _val.match_id)), Errors::PREDICTED
+                            );
+                            if let MatchType::Live = _match.match_type {
+                                assert(
+                                    get_block_timestamp() + 600 < (_match.timestamp),
+                                    Errors::PREDICTION_CLOSED
+                                );
+                            } else {
+                                assert(
+                                    get_block_timestamp() < (_match.timestamp),
+                                    Errors::PREDICTION_CLOSED
+                                );
+                            }
+
+                            self.predicted.write((caller, _val.match_id), true);
+                            let match_predictions_count = self
+                                .match_predictions_count
+                                .read(_val.match_id);
+
+                            self
+                                .prediction_user_id_pointer
+                                .write(match_predictions_count + 1, caller);
+                            self
+                                .prediction_user_index_pointer
+                                .write(caller, match_predictions_count + 1);
+                            self
+                                .match_predictions_count
+                                .write(_val.match_id, match_predictions_count + 1);
+                            let prediction_construct = Prediction {
+                                stake: prediction.stake,
+                                inputed: true,
+                                prediction_type: PredictionType::Multiple(prediction.pair.unwrap()),
+                            };
+                            self.predictions.write((caller, _val.match_id), prediction_construct);
+                            pair_index += 1;
+                            self
+                                .prediction_pair
+                                .write((prediction.pair.unwrap(), pair_index), _val);
+                        };
+                        self.prediction_pair_count.write(prediction.pair.unwrap(), pair_index);
+                    }
+                }
+
+                total_stake += prediction.stake;
+            };
+
+            if total_stake > 0 {
+                let erc20_dispatcher = ERC20ABISafeDispatcher {
+                    contract_address: self.erc20_token.read()
+                };
+                erc20_dispatcher
+                    .transfer_from(caller, get_contract_address(), total_stake)
+                    .unwrap();
+            }
+        }
+
+
         fn register_matches(ref self: ContractState, matches: Array<RawMatch>) {
             assert(matches.len() > 0, Errors::INVALID_MATCH_LENGTH);
             assert(get_caller_address() == self.owner.read(), Errors::UNAUTHORIZED);
@@ -287,7 +404,10 @@ pub mod SPL {
                     assert(get_block_timestamp() >= _match.timestamp + 120, 'MATCH_NOT_ENDED');
                 }
                 assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                assert(_match.winner_odd.is_none(), Errors::SCORED);
+                // assert(_match.winner_odd.is_none(), Errors::SCORED);
+                if _match.winner_odd.is_some() {
+                    continue;
+                }
                 assert(score.inputed, 'INVALID_PARAMS');
 
                 self

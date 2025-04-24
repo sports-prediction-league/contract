@@ -32,6 +32,7 @@ pub trait ISPL<TContractState> {
     ) -> Array<Prediction>;
     // fn get_match_scores(self: @TContractState, round: u256) -> Array<Score>;
     fn get_pair_count(self: @TContractState, pair_id: felt252) -> u256;
+    fn make_bulk_prediction(ref self: TContractState, predictions: Array<RawPrediction>);
     fn get_current_round(self: @TContractState) -> u256;
     fn is_address_registered(self: @TContractState, address: ContractAddress) -> bool;
     fn get_user_total_scores(self: @TContractState, address: ContractAddress) -> u256;

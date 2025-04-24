@@ -91,7 +91,7 @@ pub struct PredictionDetails {
 }
 
 
-#[derive(Drop, Copy, Clone,Debug, Serde, starknet::Store)]
+#[derive(Drop, Copy, Clone, Debug, Serde, starknet::Store)]
 pub enum MatchType {
     #[default]
     Virtual,
@@ -110,7 +110,7 @@ pub enum PredictionType {
     Multiple: felt252,
 }
 
-#[derive(Serde, Drop)]
+#[derive(Serde, Drop, PartialEq)]
 pub enum RawPredictionType {
     #[default]
     Single: PredictionVariants,
