@@ -6,7 +6,8 @@ pub mod SPL {
     use super::mods::{
         types::{
             Score, PredictionDetails, Leaderboard, Match, RoundDetails, MatchType, User, Prediction,
-            PredictionType, RawPrediction, RawPredictionType, PredictionVariants, RawMatch
+            PredictionType, RawPrediction, RawPredictionType, PredictionVariants, RawMatch, Team,
+            UserPrediction
         },
         constants::Errors, interfaces::ispl::ISPL
     };
@@ -57,6 +58,8 @@ pub mod SPL {
         prediction_user_index_pointer: Map::<ContractAddress, u256>,
         prediction_user_id_pointer: Map::<u256, ContractAddress>,
         user_points: Map::<ContractAddress, u256>,
+        user_prediction_count: Map::<ContractAddress, u256>,
+        user_prediction_index_pointer: Map::<u256, felt252>,
         // user_match_predicted_ptr: Map
         current_round: u256,
         user_rewards: Map::<ContractAddress, u256>,
@@ -129,7 +132,9 @@ pub mod SPL {
                 RawPredictionType::Single(val) => {
                     let _match = self.match_details.read(val.match_id);
                     assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                    assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                    assert(
+                        _match.home.goals.is_none() && _match.away.goals.is_none(), 'MATCH_SCORED'
+                    );
                     assert(!self.predicted.read((caller, val.match_id)), Errors::PREDICTED);
                     if let MatchType::Live = _match.match_type {
                         assert(
@@ -156,6 +161,11 @@ pub mod SPL {
                     self.prediction_user_id_pointer.write(match_predictions_count + 1, caller);
                     self.prediction_user_index_pointer.write(caller, match_predictions_count + 1);
                     self.match_predictions_count.write(val.match_id, match_predictions_count + 1);
+                    let user_prediction_count = self.user_prediction_count.read(caller);
+                    self
+                        .user_prediction_index_pointer
+                        .write(user_prediction_count + 1, val.match_id);
+                    self.user_prediction_count.write(caller, user_prediction_count + 1);
                 },
                 RawPredictionType::Multiple(val) => {
                     assert(predictions.pair.is_some(), 'INVALID_PARAMS');
@@ -164,7 +174,10 @@ pub mod SPL {
                     for _val in val {
                         let _match = self.match_details.read(_val.match_id);
                         assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                        assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                        assert(
+                            _match.home.goals.is_none() && _match.away.goals.is_none(),
+                            'MATCH_SCORED'
+                        );
                         assert(!self.predicted.read((caller, _val.match_id)), Errors::PREDICTED);
                         if let MatchType::Live = _match.match_type {
                             assert(
@@ -190,6 +203,11 @@ pub mod SPL {
                         self
                             .match_predictions_count
                             .write(_val.match_id, match_predictions_count + 1);
+                        let user_prediction_count = self.user_prediction_count.read(caller);
+                        self
+                            .user_prediction_index_pointer
+                            .write(user_prediction_count + 1, _val.match_id);
+                        self.user_prediction_count.write(caller, user_prediction_count + 1);
                         let prediction_construct = Prediction {
                             stake: predictions.stake,
                             inputed: true,
@@ -228,7 +246,10 @@ pub mod SPL {
                         assert(is_single_type, 'INVALID_PARAMS');
                         let _match = self.match_details.read(val.match_id);
                         assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                        assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                        assert(
+                            _match.home.goals.is_none() && _match.away.goals.is_none(),
+                            'MATCH_SCORED'
+                        );
                         assert(!self.predicted.read((caller, val.match_id)), Errors::PREDICTED);
                         if let MatchType::Live = _match.match_type {
                             assert(
@@ -262,6 +283,11 @@ pub mod SPL {
                         self
                             .match_predictions_count
                             .write(val.match_id, match_predictions_count + 1);
+                        let user_prediction_count = self.user_prediction_count.read(caller);
+                        self
+                            .user_prediction_index_pointer
+                            .write(user_prediction_count + 1, val.match_id);
+                        self.user_prediction_count.write(caller, user_prediction_count + 1);
                     },
                     RawPredictionType::Multiple(val) => {
                         assert(!is_single_type, 'INVALID_PARAMS');
@@ -272,7 +298,10 @@ pub mod SPL {
                         for _val in val {
                             let _match = self.match_details.read(_val.match_id);
                             assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                            assert(_match.winner_odd.is_none(), 'MATCH_SCORED');
+                            assert(
+                                _match.home.goals.is_none() && _match.away.goals.is_none(),
+                                'MATCH_SCORED'
+                            );
                             assert(
                                 !self.predicted.read((caller, _val.match_id)), Errors::PREDICTED
                             );
@@ -302,6 +331,11 @@ pub mod SPL {
                             self
                                 .match_predictions_count
                                 .write(_val.match_id, match_predictions_count + 1);
+                            let user_prediction_count = self.user_prediction_count.read(caller);
+                            self
+                                .user_prediction_index_pointer
+                                .write(user_prediction_count + 1, _val.match_id);
+                            self.user_prediction_count.write(caller, user_prediction_count + 1);
                             let prediction_construct = Prediction {
                                 stake: prediction.stake,
                                 inputed: true,
@@ -365,7 +399,8 @@ pub mod SPL {
                             id: _match.id,
                             timestamp: _match.timestamp,
                             match_type: _match.match_type,
-                            winner_odd: Option::None
+                            home: Team { goals: Option::None, .._match.home },
+                            away: Team { goals: Option::None, .._match.away },
                         }
                     );
                 self.match_ids.write(index, _match.id);
@@ -393,120 +428,154 @@ pub mod SPL {
         fn set_scores(ref self: ContractState, scores: Array<Score>) {
             assert(get_caller_address() == self.owner.read(), Errors::UNAUTHORIZED);
 
-            for score in scores {
-                let _match = self.match_details.read(score.match_id);
-                assert(
-                    self.match_odds.read((score.match_id, score.winner_odd)) > 0, 'INVALID_PARAMS'
-                );
-                if let MatchType::Live = _match.match_type {
-                    assert(get_block_timestamp() >= _match.timestamp + 5400, 'MATCH_NOT_ENDED');
-                } else {
-                    assert(get_block_timestamp() >= _match.timestamp + 120, 'MATCH_NOT_ENDED');
-                }
-                assert(_match.inputed, Errors::INVALID_MATCH_ID);
-                // assert(_match.winner_odd.is_none(), Errors::SCORED);
-                if _match.winner_odd.is_some() {
-                    continue;
-                }
-                assert(score.inputed, 'INVALID_PARAMS');
+            for score in scores
+                .span() {
+                    let _match = self.match_details.read(*score.match_id);
 
-                self
-                    .match_details
-                    .write(
-                        score.match_id,
-                        Match { winner_odd: Option::Some(score.winner_odd), .._match }
-                    );
+                    assert(_match.inputed, Errors::INVALID_MATCH_ID);
+                    if let MatchType::Live = _match.match_type {
+                        assert(get_block_timestamp() >= _match.timestamp + 5400, 'MATCH_NOT_ENDED');
+                    } else {
+                        assert(get_block_timestamp() >= _match.timestamp + 120, 'MATCH_NOT_ENDED');
+                    }
+                    // assert(_match.winner_odd.is_none(), Errors::SCORED);
+                    if _match.home.goals.is_some() {
+                        continue;
+                    }
+                    assert(*score.inputed, 'INVALID_PARAMS');
 
-                let match_predictions_count = self.match_predictions_count.read(score.match_id);
-
-                let mut index = 1;
-                while index <= match_predictions_count {
-                    let user_addr = self.prediction_user_id_pointer.read(index);
-                    let prediction = self.predictions.read((user_addr, score.match_id));
-
-                    match prediction.prediction_type {
-                        PredictionType::Single(variants) => {
-                            if score.winner_odd == variants.odd {
-                                let winner_odd = self
-                                    .match_odds
-                                    .read((score.match_id, variants.odd));
-                                self
-                                    .user_points
-                                    .write(
-                                        user_addr, self.user_points.read(user_addr) + winner_odd
-                                    );
-                                if prediction.stake > 0 {
-                                    self
-                                        .user_rewards
-                                        .write(
-                                            user_addr,
-                                            self.user_rewards.read(user_addr)
-                                                + ((winner_odd * prediction.stake) / (100))
-                                        );
-                                }
+                    self
+                        .match_details
+                        .write(
+                            *score.match_id,
+                            Match {
+                                home: Team { goals: Option::Some(*score.home), .._match.home },
+                                away: Team { goals: Option::Some(*score.away), .._match.away },
+                                .._match
                             }
-                        },
-                        PredictionType::Multiple(pair_id) => {
-                            let pair_count = self.prediction_pair_count.read(pair_id);
-                            let mut _index = 1;
-                            let mut match_complete = true;
-                            let mut point_accumulation: u256 = 0;
-                            let mut false_prediction = false;
-                            while _index <= pair_count {
-                                let pair = self.prediction_pair.read((pair_id, _index));
-                                let match_pair = self.match_details.read(pair.match_id);
+                        );
 
-                                if match_pair.winner_odd.is_none() {
-                                    match_complete = false;
-                                    break;
-                                }
+                    let match_predictions_count = self
+                        .match_predictions_count
+                        .read(*score.match_id);
 
-                                if let MatchType::Live = match_pair.match_type {
-                                    if get_block_timestamp() < match_pair.timestamp + 5400 {
+                    let mut index = 1;
+                    while index <= match_predictions_count {
+                        let user_addr = self.prediction_user_id_pointer.read(index);
+                        let prediction = self.predictions.read((user_addr, *score.match_id));
+
+                        match prediction.prediction_type {
+                            PredictionType::Single(variants) => {
+                                for _win in score
+                                    .winner_odds
+                                    .span() {
+                                        if *_win == variants.odd {
+                                            assert(
+                                                self.match_odds.read((*score.match_id, *_win)) > 0,
+                                                'INVALID_PARAMS'
+                                            );
+                                            let winner_odd = self
+                                                .match_odds
+                                                .read((*score.match_id, variants.odd));
+                                            self
+                                                .user_points
+                                                .write(
+                                                    user_addr,
+                                                    self.user_points.read(user_addr) + winner_odd
+                                                );
+                                            if prediction.stake > 0 {
+                                                self
+                                                    .user_rewards
+                                                    .write(
+                                                        user_addr,
+                                                        self.user_rewards.read(user_addr)
+                                                            + ((winner_odd * prediction.stake)
+                                                                / (100))
+                                                    );
+                                            }
+                                        }
+                                        break;
+                                    };
+                            },
+                            PredictionType::Multiple(pair_id) => {
+                                let pair_count = self.prediction_pair_count.read(pair_id);
+                                let mut _index = 1;
+                                let mut match_complete = true;
+                                let mut point_accumulation: u256 = 0;
+                                let mut false_prediction = false;
+                                while _index <= pair_count {
+                                    let pair = self.prediction_pair.read((pair_id, _index));
+                                    let match_pair = self.match_details.read(pair.match_id);
+
+                                    if match_pair.home.goals.is_none() {
                                         match_complete = false;
+
                                         break;
                                     }
-                                } else {
-                                    if get_block_timestamp() < match_pair.timestamp + 120 {
-                                        match_complete = false;
-                                        break;
+
+                                    if let MatchType::Live = match_pair.match_type {
+                                        if get_block_timestamp() < match_pair.timestamp + 5400 {
+                                            match_complete = false;
+                                            break;
+                                        }
+                                    } else {
+                                        if get_block_timestamp() < match_pair.timestamp + 120 {
+                                            match_complete = false;
+                                            break;
+                                        }
                                     }
-                                }
-                                if pair.odd != match_pair.winner_odd.unwrap() {
-                                    false_prediction = true;
-                                }
+                                    let mut included = false;
 
-                                point_accumulation += self
-                                    .match_odds
-                                    .read((pair.match_id, pair.odd));
+                                    for _score in scores
+                                        .span() {
+                                            if *_score.match_id == pair.match_id {
+                                                for _win in _score
+                                                    .winner_odds
+                                                    .span() {
+                                                        if pair.odd == *_win {
+                                                            included = true;
+                                                            break;
+                                                        }
+                                                    }
+                                            }
+                                        };
 
-                                _index += 1;
-                            };
+                                    if !included {
+                                        false_prediction = true;
+                                    }
 
-                            if match_complete {
-                                self
-                                    .user_points
-                                    .write(
-                                        user_addr,
-                                        self.user_points.read(user_addr) + point_accumulation
-                                    );
+                                    point_accumulation += self
+                                        .match_odds
+                                        .read((pair.match_id, pair.odd));
 
-                                if !false_prediction && prediction.stake > 0 {
+                                    _index += 1;
+                                };
+
+                                if match_complete {
                                     self
-                                        .user_rewards
+                                        .user_points
                                         .write(
                                             user_addr,
-                                            self.user_rewards.read(user_addr)
-                                                + ((point_accumulation * prediction.stake) / (100))
+                                            self.user_points.read(user_addr) + point_accumulation
                                         );
+
+                                    if !false_prediction && prediction.stake > 0 {
+                                        self
+                                            .user_rewards
+                                            .write(
+                                                user_addr,
+                                                self.user_rewards.read(user_addr)
+                                                    + ((point_accumulation * prediction.stake)
+                                                        / (100))
+                                            );
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    index += 1;
-                }
-            };
+                        index += 1;
+                    }
+                };
         }
 
 
@@ -544,26 +613,33 @@ pub mod SPL {
 
 
         fn get_user_predictions(
-            self: @ContractState, round: u256, user: ContractAddress
-        ) -> Array<Prediction> {
-            assert(round > 0, Errors::INVALID_ROUND);
-            assert(round <= self.current_round.read(), 'OUT_OF_BOUNDS');
+            self: @ContractState, user: ContractAddress
+        ) -> Array<UserPrediction> {
+            assert(user.is_non_zero(), Errors::INVALID_ADDRESS);
+            let user_prediction_count = self.user_prediction_count.read(user);
+            if user_prediction_count == 0 {
+                return array![];
+            }
+
             let mut result = array![];
 
-            let round_details = self.round_details.read(round);
+            let mut index = user_prediction_count;
 
-            assert(round_details.inputed, Errors::INVALID_ROUND);
-            assert(round_details.end > 0, Errors::INVALID_ROUND);
+            while index >= 1 {
+                let user_prediction_index_pointer = self.user_prediction_index_pointer.read(index);
+                let user_prediction = self.predictions.read((user, user_prediction_index_pointer));
+                assert(user_prediction.inputed, 'INVALID_PARAMS');
+                let _match = self.match_details.read(user_prediction_index_pointer);
+                assert(_match.inputed, 'INVALID_PARAMS');
+                let twenty_four_hrs_in_secs = 24 * 60 * 60;
+                let is_less_than_24_hrs = get_block_timestamp()
+                    - _match.timestamp < twenty_four_hrs_in_secs;
+                if is_less_than_24_hrs {
+                    let construct = UserPrediction { match_: _match, prediction: user_prediction };
+                    result.append(construct);
+                };
 
-            let mut index = round_details.start;
-
-            while index <= round_details.end {
-                let match_id = self.match_ids.read(index);
-                let user_prediction = self.predictions.read((user, match_id));
-                if user_prediction.inputed {
-                    result.append(user_prediction);
-                }
-                index += 1;
+                index -= 1;
             };
 
             result

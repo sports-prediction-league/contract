@@ -2,7 +2,8 @@ use starknet::class_hash::ClassHash;
 use core::starknet::ContractAddress;
 
 use crate::mods::types::{
-    Score, PredictionDetails, Leaderboard, Match, User, Prediction, RawPrediction, RawMatch
+    Score, PredictionDetails, Leaderboard, Match, User, Prediction, RawPrediction, RawMatch,
+    UserPrediction
 };
 
 #[starknet::interface]
@@ -24,9 +25,7 @@ pub trait ISPL<TContractState> {
     fn get_leaderboard(self: @TContractState, start_index: u256, size: u256) -> Array<Leaderboard>;
     fn register_matches(ref self: TContractState, matches: Array<RawMatch>);
     fn set_scores(ref self: TContractState, scores: Array<Score>);
-    fn get_user_predictions(
-        self: @TContractState, round: u256, user: ContractAddress
-    ) -> Array<Prediction>;
+    fn get_user_predictions(self: @TContractState, user: ContractAddress) -> Array<UserPrediction>;
     fn get_user_matches_predictions(
         self: @TContractState, matches: Array<felt252>, user: ContractAddress
     ) -> Array<Prediction>;

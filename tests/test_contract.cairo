@@ -24,7 +24,7 @@ use spl::mods::interfaces::ispl::{ISPLDispatcher, ISPLDispatcherTrait};
 use spl::mods::{types, constants::{Errors}, events, tokens};
 use spl::mods::types::{
     Score, Reward, PredictionDetails, Leaderboard, Match, RoundDetails, MatchType, User, Prediction,
-    PredictionType, RawPrediction, RawPredictionType, PredictionVariants, RawMatch, Odd
+    PredictionType, RawPrediction, RawPredictionType, PredictionVariants, RawMatch, Odd, Team
 };
 
 const ADMIN: felt252 = 'ADMIN';
@@ -172,7 +172,9 @@ fn test_register_matches() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: (123 + i).try_into().unwrap() }]
+                        odds: array![Odd { id, value: (123 + i).try_into().unwrap() }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 )
         };
@@ -216,7 +218,9 @@ fn test_register_matches_not_owner() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: (123 + 1).try_into().unwrap() }]
+                        odds: array![Odd { id, value: (123 + 1).try_into().unwrap() }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 )
         };
@@ -256,11 +260,18 @@ fn test_set_score_unauthorized() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: '1', inputed: true, match_id: id });
+            scores
+                .append(
+                    Score {
+                        winner_odds: array!['1'], inputed: true, match_id: id, home: 1, away: 2
+                    }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -280,7 +291,7 @@ fn test_set_score_unauthorized() {
 
 
 #[test]
-#[should_panic(expected: 'INVALID_PARAMS')]
+#[should_panic(expected: 'INVALID_MATCH_ID')]
 fn test_set_score_invalid_param() {
     let spl_contract_address = _setup_();
     let spl = ISPLDispatcher { contract_address: spl_contract_address };
@@ -303,10 +314,17 @@ fn test_set_score_invalid_param() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }]
+                        odds: array![Odd { id, value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
-            scores.append(Score { winner_odd: id, inputed: true, match_id: id + 1 })
+            scores
+                .append(
+                    Score {
+                        winner_odds: array![id], inputed: true, match_id: id + 1, home: 1, away: 2
+                    }
+                )
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -363,11 +381,16 @@ fn test_set_score() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }]
+                        odds: array![Odd { id, value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: id, inputed: true, match_id: id });
+            scores
+                .append(
+                    Score { winner_odds: array![id], inputed: true, match_id: id, home: 1, away: 2 }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -398,9 +421,20 @@ fn test_set_score() {
 
     start_cheat_caller_address(spl_contract_address, owner);
     start_cheat_block_timestamp(spl_contract_address, last_timestamp + 120);
-    spl.set_scores(scores.clone());
+    spl.set_scores(scores);
     let user_score = spl.get_user_total_scores(USER());
     let reward = spl.get_user_reward(USER());
+
+    let mut scores: Array<Score> = array![];
+    for i in min
+        ..max {
+            let id: felt252 = i.try_into().unwrap();
+
+            scores
+                .append(
+                    Score { winner_odds: array![id], inputed: true, match_id: id, home: 1, away: 2 }
+                );
+        };
 
     let match_predictions = spl.get_match_predictions(1.try_into().unwrap());
     assert_eq!(match_predictions.len(), 2);
@@ -408,8 +442,10 @@ fn test_set_score() {
     for i in min
         ..max {
             let _match = spl.get_match_by_id(i.try_into().unwrap());
-            assert_eq!(_match.winner_odd.is_some(), true);
-            assert_eq!(_match.winner_odd.unwrap(), *scores[(i - 1).try_into().unwrap()].winner_odd);
+            assert_eq!(_match.home.goals.is_some(), true);
+            assert_eq!(_match.home.goals.unwrap(), *scores[(i - 1).try_into().unwrap()].home);
+            assert_eq!(_match.away.goals.is_some(), true);
+            assert_eq!(_match.away.goals.unwrap(), *scores[(i - 1).try_into().unwrap()].away);
         };
     assert_eq!(reward, 0);
     assert_eq!(user_score, 123);
@@ -442,11 +478,18 @@ fn test_set_score_unended_match() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: '1', inputed: true, match_id: id })
+            scores
+                .append(
+                    Score {
+                        winner_odds: array!['1'], inputed: true, match_id: id, home: 1, away: 2
+                    }
+                )
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -486,7 +529,9 @@ fn test_make_prediction_unregistered_user() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
         };
@@ -531,7 +576,9 @@ fn test_make_prediction_invalid_match_id() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
         };
@@ -580,20 +627,27 @@ fn test_make_prediction_scored_match() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: '1', inputed: true, match_id: id })
+            scores
+                .append(
+                    Score {
+                        winner_odds: array!['1'], inputed: true, match_id: id, home: 1, away: 2
+                    }
+                )
         };
 
     assert_eq!(spl.get_current_round(), 0);
 
-    let timestamp = *matches[0].timestamp;
+    let timestamp = *matches[matches.len() - 1].timestamp;
     spl.register_matches(matches);
-    let max_time = 120;
+    let max_time = 240;
     start_cheat_block_timestamp(spl_contract_address, (timestamp) + max_time.try_into().unwrap());
-    spl.set_scores(array![*scores[0]]);
+    spl.set_scores(scores);
     stop_cheat_block_timestamp(spl_contract_address);
     stop_cheat_caller_address(spl_contract_address);
     let user: ContractAddress = USER();
@@ -636,7 +690,9 @@ fn test_make_prediction_prediction_closed() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
         };
@@ -696,7 +752,9 @@ fn test_make_prediction_with_stake() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
         };
@@ -763,7 +821,9 @@ fn test_make_prediction_without_stake() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 )
         };
@@ -829,11 +889,18 @@ fn test_get_leaderboard() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 125 }]
+                        odds: array![Odd { id: '1', value: 125 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: '1', inputed: true, match_id: id });
+            scores
+                .append(
+                    Score {
+                        winner_odds: array!['1'], inputed: true, match_id: id, home: 1, away: 2
+                    }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -925,11 +992,18 @@ fn test_claim_reward() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }]
+                        odds: array![Odd { id: '1', value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: '1', inputed: true, match_id: id });
+            scores
+                .append(
+                    Score {
+                        winner_odds: array!['1'], inputed: true, match_id: id, home: 1, away: 2
+                    }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -1039,11 +1113,16 @@ fn test_claim_reward_on_multiple_correct_prediction() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }]
+                        odds: array![Odd { id, value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: id, inputed: true, match_id: id });
+            scores
+                .append(
+                    Score { winner_odds: array![id], inputed: true, match_id: id, home: 1, away: 2 }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -1158,11 +1237,16 @@ fn test_claim_reward_on_multiple_one_icorrect_prediction() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }]
+                        odds: array![Odd { id, value: 123 }],
+                        home: Team { id: '1', goals: Option::None },
+                        away: Team { id: '2', goals: Option::None },
                     }
                 );
 
-            scores.append(Score { winner_odd: id, inputed: true, match_id: id });
+            scores
+                .append(
+                    Score { winner_odds: array![id], inputed: true, match_id: id, home: 1, away: 2 }
+                );
         };
 
     assert_eq!(spl.get_current_round(), 0);
@@ -1190,7 +1274,7 @@ fn test_claim_reward_on_multiple_one_icorrect_prediction() {
     let match_predictions = spl.get_match_predictions(1.try_into().unwrap());
     assert_eq!(match_predictions.len(), 1);
     assert_eq!(*match_predictions[0].user.address, USER());
-    let user_matches_predictions = spl.get_user_matches_predictions(array![1, 2, 3], user);
+    // let user_matches_predictions = spl.get_user_matches_predictions(array![1, 2, 3], user);
     start_cheat_caller_address(spl_contract_address, OTHER('other'));
     let user_construct = User { id: 2, username: 'jane', address: OTHER('other') };
     spl.register_user(user_construct);

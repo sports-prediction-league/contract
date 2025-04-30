@@ -1,11 +1,12 @@
 use core::starknet::ContractAddress;
 
-
-#[derive(Copy, Drop, Debug, Serde, PartialEq, starknet::Store)]
+#[derive(Drop, Serde,)]
 pub struct Score {
     pub inputed: bool,
+    pub home: u8,
+    pub away: u8,
     pub match_id: felt252,
-    pub winner_odd: felt252,
+    pub winner_odds: Array<felt252>,
 }
 
 
@@ -36,15 +37,29 @@ pub struct Prediction {
     // pub pair: Option<felt252>
 }
 
+#[derive(Copy, Drop, Serde)]
+pub struct UserPrediction {
+    pub match_: Match,
+    pub prediction: Prediction
+}
+
 
 #[derive(Copy, Drop, Debug, Serde, starknet::Store)]
 pub struct Match {
     pub inputed: bool,
     pub id: felt252,
     pub timestamp: u64,
+    pub home: Team,
+    pub away: Team,
     pub round: Option<u256>,
     pub match_type: MatchType,
-    pub winner_odd: Option<felt252>
+    // pub winner_odd: Option<felt252>
+}
+
+#[derive(Copy, Drop, Debug, Serde, starknet::Store)]
+pub struct Team {
+    pub id: felt252,
+    pub goals: Option<u8>,
 }
 
 
@@ -59,7 +74,9 @@ pub struct RawMatch {
     pub timestamp: u64,
     pub round: Option<u256>,
     pub match_type: MatchType,
-    pub odds: Array<Odd>
+    pub odds: Array<Odd>,
+    pub home: Team,
+    pub away: Team,
 }
 
 
