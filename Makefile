@@ -2,7 +2,7 @@ t:
 	snforge test
 
 deploy:
-	sncast deploy --fee-token eth --class-hash ${class_hash} --constructor-calldata ${arg} ${another_arg}
+	sncast deploy --fee-token eth --class-hash ${classhash} --constructor-calldata ${arg} ${another_arg}
 
 
 declare:
