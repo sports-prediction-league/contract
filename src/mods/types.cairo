@@ -27,11 +27,12 @@ pub struct RawPrediction {
 }
 
 
-#[derive(Copy, Drop, Debug, PartialEq, Serde, starknet::Store)]
+#[derive(Copy, Drop, Serde, starknet::Store)]
 pub struct Prediction {
     pub inputed: bool,
     // pub match_id: felt252,
     // pub odd_id: felt252,
+    pub odd: Option<Odd>,
     pub stake: u256,
     pub prediction_type: PredictionType,
     // pub pair: Option<felt252>
@@ -40,6 +41,7 @@ pub struct Prediction {
 #[derive(Copy, Drop, Serde)]
 pub struct UserPrediction {
     pub match_: Match,
+    // pub prediction_tag: felt252,
     pub prediction: Prediction
 }
 
@@ -63,10 +65,11 @@ pub struct Team {
 }
 
 
-#[derive(Drop, Serde)]
+#[derive(Drop, Copy, Serde, starknet::Store)]
 pub struct Odd {
     pub id: felt252,
     pub value: u256,
+    pub tag: felt252,
 }
 #[derive(Drop, Serde)]
 pub struct RawMatch {

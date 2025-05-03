@@ -172,7 +172,7 @@ fn test_register_matches() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: (123 + i).try_into().unwrap() }],
+                        odds: array![Odd { id, value: (123 + i).try_into().unwrap(), tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -218,7 +218,7 @@ fn test_register_matches_not_owner() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: (123 + 1).try_into().unwrap() }],
+                        odds: array![Odd { id, value: (123 + 1).try_into().unwrap(), tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -260,7 +260,7 @@ fn test_set_score_unauthorized() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -314,7 +314,7 @@ fn test_set_score_invalid_param() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }],
+                        odds: array![Odd { id, value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -381,7 +381,7 @@ fn test_set_score() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }],
+                        odds: array![Odd { id, value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -478,7 +478,7 @@ fn test_set_score_unended_match() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -529,7 +529,7 @@ fn test_make_prediction_unregistered_user() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -576,7 +576,7 @@ fn test_make_prediction_invalid_match_id() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -627,7 +627,7 @@ fn test_make_prediction_scored_match() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -690,7 +690,7 @@ fn test_make_prediction_prediction_closed() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -752,7 +752,7 @@ fn test_make_prediction_with_stake() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -821,7 +821,7 @@ fn test_make_prediction_without_stake() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -889,7 +889,7 @@ fn test_get_leaderboard() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 125 }],
+                        odds: array![Odd { id: '1', value: 125, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -992,7 +992,7 @@ fn test_claim_reward() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id: '1', value: 123 }],
+                        odds: array![Odd { id: '1', value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -1027,6 +1027,8 @@ fn test_claim_reward() {
     stop_cheat_caller_address(spl_contract_address);
     let match_predictions = spl.get_match_predictions(1.try_into().unwrap());
     assert_eq!(match_predictions.len(), 1);
+    let user_predictions = spl.get_user_predictions(USER());
+    assert_eq!(user_predictions.len(), 1);
     assert_eq!(*match_predictions[0].user.address, USER());
 
     start_cheat_caller_address(spl_contract_address, OTHER('other'));
@@ -1113,7 +1115,7 @@ fn test_claim_reward_on_multiple_correct_prediction() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }],
+                        odds: array![Odd { id, value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }
@@ -1237,7 +1239,7 @@ fn test_claim_reward_on_multiple_one_icorrect_prediction() {
                         timestamp,
                         round: Option::None,
                         match_type: MatchType::Virtual,
-                        odds: array![Odd { id, value: 123 }],
+                        odds: array![Odd { id, value: 123, tag: 'x' }],
                         home: Team { id: '1', goals: Option::None },
                         away: Team { id: '2', goals: Option::None },
                     }

@@ -7,7 +7,7 @@ pub mod SPL {
         types::{
             Score, PredictionDetails, Leaderboard, Match, RoundDetails, MatchType, User, Prediction,
             PredictionType, RawPrediction, RawPredictionType, PredictionVariants, RawMatch, Team,
-            UserPrediction
+            UserPrediction, Odd
         },
         constants::Errors, interfaces::ispl::ISPL
     };
@@ -43,7 +43,7 @@ pub mod SPL {
         owner: ContractAddress,
         total_matches: u256,
         match_details: Map::<felt252, Match>,
-        match_odds: Map::<(felt252, felt252), u256>,
+        match_odds: Map::<(felt252, felt252), Odd>,
         match_index: Map::<felt252, u256>,
         match_ids: Map::<u256, felt252>,
         users_scores: Map::<(ContractAddress, felt252), u256>,
@@ -151,6 +151,7 @@ pub mod SPL {
                         stake: predictions.stake,
                         inputed: true,
                         prediction_type: PredictionType::Single(val),
+                        odd: Option::Some(self.match_odds.read((val.match_id, val.odd)))
                         // pair: Option::None
                     };
                     self.predicted.write((caller, val.match_id), true);
@@ -212,6 +213,7 @@ pub mod SPL {
                             stake: predictions.stake,
                             inputed: true,
                             prediction_type: PredictionType::Multiple(predictions.pair.unwrap()),
+                            odd: Option::Some(self.match_odds.read((_val.match_id, _val.odd)))
                         };
                         self.predictions.write((caller, _val.match_id), prediction_construct);
                         pair_index += 1;
@@ -267,6 +269,7 @@ pub mod SPL {
                             stake: prediction.stake,
                             inputed: true,
                             prediction_type: PredictionType::Single(val),
+                            odd: Option::Some(self.match_odds.read((val.match_id, val.odd)))
                             // pair: Option::None
                         };
                         self.predicted.write((caller, val.match_id), true);
@@ -340,6 +343,7 @@ pub mod SPL {
                                 stake: prediction.stake,
                                 inputed: true,
                                 prediction_type: PredictionType::Multiple(prediction.pair.unwrap()),
+                                odd: Option::Some(self.match_odds.read((_val.match_id, _val.odd)))
                             };
                             self.predictions.write((caller, _val.match_id), prediction_construct);
                             pair_index += 1;
@@ -387,7 +391,9 @@ pub mod SPL {
                 for odd in _match
                     .odds {
                         assert(odd.value > 0, 'INVALID_PARAMS');
-                        self.match_odds.write((_match.id, odd.id), odd.value);
+                        assert(odd.id.is_non_zero(), 'INVALID_PARAMS');
+                        assert(odd.tag.is_non_zero(), 'INVALID_PARAMS');
+                        self.match_odds.write((_match.id, odd.id), odd);
                     };
                 self
                     .match_details
@@ -413,7 +419,7 @@ pub mod SPL {
         }
 
         fn get_match_odd(self: @ContractState, match_id: felt252, odd_id: felt252) -> u256 {
-            self.match_odds.read((match_id, odd_id))
+            self.match_odds.read((match_id, odd_id)).value
         }
 
         /// test
@@ -471,12 +477,13 @@ pub mod SPL {
                                     .span() {
                                         if *_win == variants.odd {
                                             assert(
-                                                self.match_odds.read((*score.match_id, *_win)) > 0,
+                                                self
+                                                    .match_odds
+                                                    .read((*score.match_id, *_win))
+                                                    .value > 0,
                                                 'INVALID_PARAMS'
                                             );
-                                            let winner_odd = self
-                                                .match_odds
-                                                .read((*score.match_id, variants.odd));
+                                            let winner_odd = prediction.odd.unwrap().value;
                                             self
                                                 .user_points
                                                 .write(
@@ -546,7 +553,8 @@ pub mod SPL {
 
                                     point_accumulation += self
                                         .match_odds
-                                        .read((pair.match_id, pair.odd));
+                                        .read((pair.match_id, pair.odd))
+                                        .value;
 
                                     _index += 1;
                                 };
@@ -632,8 +640,11 @@ pub mod SPL {
                 let _match = self.match_details.read(user_prediction_index_pointer);
                 assert(_match.inputed, 'INVALID_PARAMS');
                 let twenty_four_hrs_in_secs = 24 * 60 * 60;
-                let is_less_than_24_hrs = get_block_timestamp()
-                    - _match.timestamp < twenty_four_hrs_in_secs;
+                let is_less_than_24_hrs = if get_block_timestamp() < _match.timestamp {
+                    true
+                } else {
+                    get_block_timestamp() - _match.timestamp < twenty_four_hrs_in_secs
+                };
                 if is_less_than_24_hrs {
                     let construct = UserPrediction { match_: _match, prediction: user_prediction };
                     result.append(construct);
