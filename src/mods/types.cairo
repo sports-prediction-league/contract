@@ -127,7 +127,14 @@ pub struct PredictionVariants {
 pub enum PredictionType {
     #[default]
     Single: PredictionVariants,
-    Multiple: felt252,
+    Multiple: MultiplePredictionVariants,
+}
+
+#[derive(Drop, Copy, Debug, PartialEq, Serde, starknet::Store)]
+pub struct MultiplePredictionVariants {
+    pub match_id: felt252,
+    pub pair_id: felt252,
+    pub odd: felt252
 }
 
 #[derive(Serde, Drop, PartialEq)]
