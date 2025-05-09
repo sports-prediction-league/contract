@@ -70,7 +70,7 @@ mod spl_token {
 
         #[external(v0)]
         fn mint(ref self: ContractState, recipient: ContractAddress, amount: u256) {
-            self.ownable.assert_only_owner();
+            // self.ownable.assert_only_owner();
             self.erc20.mint(recipient, amount);
         }
     }
