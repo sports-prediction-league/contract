@@ -665,6 +665,12 @@ pub mod SPL {
                 if is_less_than_24_hrs {
                     let construct = UserPrediction { match_: _match, prediction: user_prediction };
                     result.append(construct);
+                } else {
+                    if result.len() >= 10 {
+                        break;
+                    };
+                    let construct = UserPrediction { match_: _match, prediction: user_prediction };
+                    result.append(construct);
                 };
 
                 index -= 1;
